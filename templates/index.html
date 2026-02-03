@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LocalBBS Simulation</title>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/idiomorph.js"></script>
+    <script src="https://unpkg.com/idiomorph@0.3.0/dist/idiomorph-ext.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -118,8 +118,7 @@
                  hx-get="/posts" 
                  hx-ext="idiomorph"
                  hx-trigger="load, every 2s" 
-                 hx-swap="morph:innerHTML"
-                 hx-on::after-swap="if(document.getElementById('auto-scroll').checked) { this.scrollTop = this.scrollHeight; }">
+                 hx-swap="morph:innerHTML">
                  <!-- Posts go here -->
             </div>
         </main>
@@ -157,43 +156,95 @@
     
     <script>
         const md = window.markdownit();
+        let wasNearBottom = true;
+        let lastPostCount = 0;
+        
+        // Check if user is near the bottom (within 100px)
+        function isNearBottom(el) {
+            return el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+        }
+        
+        function getCollapsedPosts() {
+            try {
+                return JSON.parse(localStorage.getItem('collapsedPosts') || '[]').map(Number);
+            } catch {
+                return [];
+            }
+        }
+        
+        function saveCollapsedPosts(posts) {
+            localStorage.setItem('collapsedPosts', JSON.stringify(posts));
+        }
         
         function applyCollapsedState() {
-             const collapsedPosts = JSON.parse(localStorage.getItem('collapsedPosts') || '[]');
-             collapsedPosts.forEach(id => {
+            const collapsedPosts = getCollapsedPosts();
+            collapsedPosts.forEach(id => {
                 const replies = document.getElementById(`replies-${id}`);
                 const btn = document.getElementById(`toggle-${id}`);
                 const card = document.getElementById(`card-${id}`);
                 
-                if (replies && btn && card) {
+                if (replies) {
+                    replies.classList.add('collapsed-thread');
                     replies.style.display = 'none';
+                }
+                if (btn) {
                     btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>';
+                }
+                if (card) {
                     card.classList.add('opacity-60');
                 }
             });
         }
+        
+        function renderMarkdown(container) {
+            container.querySelectorAll('.post-content-raw').forEach(el => {
+                const raw = el.textContent;
+                el.innerHTML = md.render(raw);
+                el.classList.remove('post-content-raw');
+                el.classList.add('markdown-body');
+            });
+        }
 
+        // Before swap: record scroll position and state
+        document.body.addEventListener('htmx:beforeSwap', function(evt) {
+            if (evt.detail.target.id === 'thread-container') {
+                const container = evt.detail.target;
+                wasNearBottom = isNearBottom(container);
+                lastPostCount = container.querySelectorAll('[id^="post-"]').length;
+            }
+        });
+
+        // After swap: apply states and scroll
         document.body.addEventListener('htmx:afterSwap', function(evt) {
             if (evt.detail.target.id === 'thread-container') {
-                // Render markdown for new posts
-                evt.detail.target.querySelectorAll('.post-content-raw').forEach(el => {
-                    const raw = el.textContent;
-                    el.innerHTML = md.render(raw);
-                    el.classList.remove('post-content-raw');
-                    el.classList.add('markdown-body');
-                });
+                const container = evt.detail.target;
+                
+                // Render markdown
+                renderMarkdown(container);
                 
                 // Restore collapsed state
                 applyCollapsedState();
+                
+                // Smart auto-scroll: only if checkbox is on AND (was near bottom OR new posts arrived)
+                const autoScrollEnabled = document.getElementById('auto-scroll').checked;
+                const currentPostCount = container.querySelectorAll('[id^="post-"]').length;
+                const hasNewPosts = currentPostCount > lastPostCount;
+                
+                if (autoScrollEnabled && (wasNearBottom || hasNewPosts)) {
+                    requestAnimationFrame(() => {
+                        container.scrollTop = container.scrollHeight;
+                    });
+                }
             }
-             if (evt.detail.target.id === 'agent-modal-content') {
-                 evt.detail.target.querySelectorAll('.md-content').forEach(el => {
+            
+            if (evt.detail.target.id === 'agent-modal-content') {
+                evt.detail.target.querySelectorAll('.md-content').forEach(el => {
                     const raw = el.textContent;
                     el.innerHTML = md.render(raw);
                     el.classList.remove('md-content');
-                     el.classList.add('markdown-body');
+                    el.classList.add('markdown-body');
                 });
-             }
+            }
         });
         
         // Initial load
@@ -205,28 +256,29 @@
             const btn = document.getElementById(`toggle-${id}`);
             const card = document.getElementById(`card-${id}`);
             
-            // Get current state
-            let collapsedPosts = JSON.parse(localStorage.getItem('collapsedPosts') || '[]');
-            collapsedPosts = collapsedPosts.map(Number);
+            if (!replies || !btn || !card) return;
             
-            if (replies.style.display === 'none') {
+            let collapsedPosts = getCollapsedPosts();
+            const isCollapsed = replies.style.display === 'none';
+            
+            if (isCollapsed) {
                 // Expanding
                 replies.style.display = 'block';
+                replies.classList.remove('collapsed-thread');
                 btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>';
                 card.classList.remove('opacity-60');
-                 // Remove from storage
                 collapsedPosts = collapsedPosts.filter(pId => pId !== id);
             } else {
                 // Collapsing
                 replies.style.display = 'none';
+                replies.classList.add('collapsed-thread');
                 btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>';
                 card.classList.add('opacity-60');
-                 // Add to storage
                 if (!collapsedPosts.includes(id)) {
                     collapsedPosts.push(id);
                 }
             }
-            localStorage.setItem('collapsedPosts', JSON.stringify(collapsedPosts));
+            saveCollapsedPosts(collapsedPosts);
         }
     </script>
 </body>

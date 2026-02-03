@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+sqlalchemy
+jinja2
+openai
+python-multipart

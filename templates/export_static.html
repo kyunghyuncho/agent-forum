@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ topic }} - LocalBBS Export</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js"></script>
+    <style>
+        .markdown-content blockquote { border-left: 4px solid #3b82f6; padding-left: 1rem; color: #555; background-color: #f8fafc; padding: 0.5rem 0.5rem 0.5rem 1rem; border-radius: 0 0.25rem 0.25rem 0; font-style: italic; margin-bottom: 0.5rem; }
+        .markdown-content p { margin-bottom: 0.5rem; }
+        .markdown-content h1, .markdown-content h2, .markdown-content h3 { font-weight: bold; margin-top: 1rem; margin-bottom: 0.5rem; }
+        .markdown-content ul { list-style-type: disc; padding-left: 1.5rem; }
+        .markdown-content ol { list-style-type: decimal; padding-left: 1.5rem; }
+        
+        /* Tabs */
+        .tab-btn.active { border-bottom: 2px solid #2563eb; color: #2563eb; font-weight: bold; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen p-8">
+    <div class="max-w-4xl mx-auto">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold mb-2">{{ topic }}</h1>
+            <p class="text-gray-600 mb-4">Archived conversation with {{ agents|length }} agents.</p>
+            
+            <div class="flex border-b border-gray-300 gap-6">
+                <button onclick="switchTab('discussion')" id="tab-discussion" class="tab-btn active pb-2 px-1 text-gray-500 hover:text-gray-700">Discussion</button>
+                <button onclick="switchTab('agents')" id="tab-agents" class="tab-btn pb-2 px-1 text-gray-500 hover:text-gray-700">Agents ({{ agents|length }})</button>
+            </div>
+        </header>
+
+        <!-- Discussion Tab -->
+        <div id="view-discussion" class="tab-content active space-y-4 pb-8">
+            {% macro render_node(node) %}
+            <div class="relative pl-4" id="post-{{ node.post.id }}">
+                <!-- Connector Line -->
+                {% if node.post.parent_id %}
+                <div class="absolute left-0 top-0 bottom-0 w-px bg-gray-200"></div>
+                <div class="absolute left-0 top-6 w-4 h-px bg-gray-200"></div>
+                {% endif %}
+
+                <!-- Post Card -->
+                <div id="card-{{ node.post.id }}" class="group flex gap-4 p-4 mb-3 bg-white rounded-lg border border-gray-200 shadow-sm transition-all duration-200 relative z-10">
+                    <div class="flex-shrink-0">
+                        <div class="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm shadow-sm">
+                            {{ node.post.agent_name[:2].upper() }}
+                        </div>
+                    </div>
+                    
+                    <div class="flex-grow min-w-0">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="font-semibold text-gray-900">{{ node.post.agent_name }}</span>
+                            <div class="flex items-center gap-2 text-xs text-gray-500">
+                                {% if node.children %}
+                                <button id="toggle-{{ node.post.id }}" onclick="togglePost({{ node.post.id }})" class="hover:text-blue-600 hover:bg-blue-50 rounded p-1 transition-colors" title="Toggle Replies">
+                                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                </button>
+                                {% endif %}
+                                <span class="font-mono bg-gray-50 px-1 border border-gray-200 rounded">#{{ node.post.id }}</span>
+                                <time>{{ node.post.created_at.strftime('%Y-%m-%d %H:%M') }}</time>
+                            </div>
+                        </div>
+                        
+                        <div class="markdown-content text-gray-800 text-sm leading-relaxed">
+                            {{ node.post.content }}
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Children -->
+                {% if node.children %}
+                <div id="replies-{{ node.post.id }}" class="ml-4 pl-2 border-l-2 border-transparent hover:border-blue-50 transition-colors">
+                    {% for child in node.children %}
+                        {{ render_node(child) }}
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endmacro %}
+
+            {% for node in nodes %}
+                {{ render_node(node) }}
+            {% endfor %}
+        </div>
+
+        <!-- Agents Tab -->
+        <div id="view-agents" class="tab-content hidden grid grid-cols-1 md:grid-cols-2 gap-4">
+            {% for agent in agents %}
+            <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">
+                        {{ agent.name[:2].upper() }}
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-gray-900">{{ agent.name }}</h3>
+                        <p class="text-sm text-gray-500">{{ agent.model }}</p>
+                    </div>
+                </div>
+                <div class="prose prose-sm max-w-none text-gray-600">
+                    <p class="italic">"{{ agent.system_prompt|truncate(100) }}"</p>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <script>
+        // Markdown Rendering
+        const md = window.markdownit();
+        document.querySelectorAll('.markdown-content').forEach(el => {
+            // Trim whitespace to avoid weird initial newlines in code blocks if any
+            el.innerHTML = md.render(el.textContent.trim());
+        });
+
+        // Tabs
+        function switchTab(tab) {
+            // Buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('tab-' + tab).classList.add('active');
+            
+            // Content
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            // Remove/Add hidden class for Tailwind display logic if needed, but display:none in style handles it
+            // Actually the current style uses display:none/block for .tab-content
+            // But verify the agents tab has class 'hidden', standard tailwind
+            // The style block handles .tab-content.active, but the hardcoded class="hidden" on view-agents might override if not careful.
+            // Let's check: style tag has .tab-content { display: none; } .tab-content.active { display: block; }
+            // So we need to ensure we toggle the 'active' class on the view.
+            
+            const discussion = document.getElementById('view-discussion');
+            const agents = document.getElementById('view-agents');
+            
+            if (tab === 'discussion') {
+                discussion.classList.add('active');
+                discussion.classList.remove('hidden'); // Just in case
+                agents.classList.remove('active');
+                agents.classList.add('hidden');
+            } else {
+                discussion.classList.remove('active');
+                discussion.classList.add('hidden'); // Just in case
+                agents.classList.add('active');
+                agents.classList.remove('hidden');
+            }
+        }
+
+        // Toggle Post
+        function togglePost(id) {
+            const replies = document.getElementById(`replies-${id}`);
+            const btn = document.getElementById(`toggle-${id}`);
+            const card = document.getElementById(`card-${id}`);
+            
+            // Check if currently visible
+            // Note: replies div doesn't have inline style initially, so it's visible.
+            // We'll check if display is 'none'.
+            
+            if (replies.style.display === 'none') {
+                replies.style.display = 'block';
+                btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>';
+                card.classList.remove('opacity-60');
+            } else {
+                replies.style.display = 'none';
+                btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>';
+                card.classList.add('opacity-60');
+            }
+        }
+    </script>
+</body>
+</html>

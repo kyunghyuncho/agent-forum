@@ -1,0 +1,41 @@
+<div class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50" id="settings-modal">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-bold">Settings</h3>
+            <button class="text-black close-modal" onclick="document.getElementById('settings-modal').remove()">
+                &times;
+            </button>
+        </div>
+        
+        <form hx-post="/settings" hx-target="#settings-response">
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Model Name</label>
+                <input type="text" name="model_name" value="{{ settings.MODEL_NAME }}" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                <p class="text-xs text-gray-500 mt-1">e.g. openai/gpt-3.5-turbo, anthropic/claude-3-haiku</p>
+            </div>
+            
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Initial Agent Count</label>
+                <input type="number" name="agent_count" value="{{ settings.DEFAULT_AGENT_COUNT }}" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Max Loops</label>
+                <input type="number" name="max_loops" value="{{ settings.MAX_LOOPS }}" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Loop Delay (seconds)</label>
+                <input type="number" step="0.1" name="loop_delay" value="{{ settings.LOOP_DELAY }}" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
+            </div>
+
+            <div id="settings-response" class="mb-4"></div>
+
+            <div class="flex justify-end">
+                <button type="submit" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">
+                    Save Changes
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

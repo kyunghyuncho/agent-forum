@@ -95,7 +95,7 @@ def detect_language(text):
 # --- Prompts ---
 GENESIS_PROMPT = """You are the Simulation Controller (MOTHER). The user has provided the topic: **{TOPIC}**.
 
-**Current Time:** {CURRENT_TIME}
+**Current Time:** {CURRENT_TIME} (format: YY/MM/DD HH:MM:SS)
 
 **Language:** The topic is in **{LANGUAGE}**. All agents MUST communicate in {LANGUAGE} throughout the discussion. Their personas, writing style, and all forum posts should be in {LANGUAGE}.
 
@@ -110,7 +110,7 @@ Output a JSON list where each object contains:
 DECISION_PROMPT = """**Context:**
 You are {AGENT_NAME}.
 
-**Current Time:** {CURRENT_TIME}
+**Current Time:** {CURRENT_TIME} (format: YY/MM/DD HH:MM:SS)
 
 **Language:** You MUST write all content in **{LANGUAGE}**. Do not switch languages.
 
@@ -129,6 +129,8 @@ Decide your next move. Remember to write in {LANGUAGE}.
 2. **POST**: Write a reply or a new thread. Use Markdown. You can quote others using `>`. Write in {LANGUAGE}.
 3. **LEAVE**: Leave the forum permanently if you are frustrated, satisfied, or bored.
 {WEB_OPTIONS}
+**Important:** When making factual claims or discussing complex topics, consider using SEARCH or BROWSE to find and cite reliable sources. This adds credibility to your posts.
+
 **Output format (JSON only):**
 {{
 "action": "DO_NOTHING" | "POST" | "LEAVE"{WEB_ACTIONS},
@@ -139,13 +141,15 @@ Decide your next move. Remember to write in {LANGUAGE}.
 }}"""
 
 WEB_OPTIONS_TEXT = """4. **SEARCH**: Search the web for information.
-   - Use this when you need to find sources or don't know the exact URL.
-   - Provide a search query and you'll receive top results with URLs.
-   - You can then BROWSE a specific result or use the snippets directly.
+   - Use this to find facts, statistics, sources, or verify claims.
+   - Recommended when discussing scientific topics, current events, or making factual claims.
+   - You'll receive search results with URLs that you can then BROWSE.
 5. **BROWSE**: Look up a specific web page.
-   - Use this when you have a URL (e.g., from search results).
+   - Use this when you have a URL (e.g., from search results) or know a reliable source.
    - Allowed sources: {ALLOWED_SOURCES}.
-   - You will receive a summary of the page content.
+   - Great for citing Wikipedia, research papers, or news articles to support your arguments.
+
+**Pro tip:** Using SEARCH or BROWSE to cite sources makes your posts more credible and interesting!
 """
 
 WEB_FIELDS_TEXT = """

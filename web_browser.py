@@ -397,8 +397,8 @@ If the content seems irrelevant to the stated reason, mention that briefly."""
                 response = client.get(
                     search_url,
                     headers={
-                        "User-Agent": "LocalBBS/1.0 (https://github.com/agent-forum; Educational AI Research)",
-                        "Accept": "text/html",
+                        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                         "Accept-Language": "en-US,en;q=0.9",
                     },
                 )
@@ -408,9 +408,11 @@ If the content seems irrelevant to the stated reason, mention that briefly."""
                 
                 results = []
                 # DuckDuckGo HTML results are in divs with class "result"
-                for result_div in soup.select(".result")[:num_results]:
-                    # Title and URL
-                    title_elem = result_div.select_one(".result__title a")
+                result_divs = soup.select(".result")[:num_results]
+                
+                for result_div in result_divs:
+                    # Title and URL - the title link has class "result__a"
+                    title_elem = result_div.select_one("a.result__a")
                     if not title_elem:
                         continue
                     
@@ -425,11 +427,12 @@ If the content seems irrelevant to the stated reason, mention that briefly."""
                         if "uddg" in query_params and query_params["uddg"]:
                             url = query_params["uddg"][0]
                         else:
-                            # Fallback: use raw URL if uddg not found
-                            url = raw_url
+                            # Fallback: use raw URL if uddg not found (and it looks like a real URL)
+                            if raw_url.startswith("http"):
+                                url = raw_url
                     
                     # Extract snippet
-                    snippet_elem = result_div.select_one(".result__snippet")
+                    snippet_elem = result_div.select_one("a.result__snippet")
                     snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
                     
                     if title and url:
@@ -440,6 +443,9 @@ If the content seems irrelevant to the stated reason, mention that briefly."""
                         })
                 
                 if not results:
+                    # Log the HTML for debugging
+                    logger.warning(f"No results found. Page title: {soup.title.string if soup.title else 'None'}")
+                    logger.debug(f"Page HTML snippet: {str(soup)[:1000]}")
                     return {
                         "success": False,
                         "results": [],

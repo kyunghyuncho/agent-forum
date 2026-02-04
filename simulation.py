@@ -376,6 +376,9 @@ class Simulation:
             search_context = f"\n\n## Search Results for: \"{query}\"\n**Error:** {result['error']}\n"
             logger.warning(f"Agent {agent.name} search failed: {result['error']}")
         
+        # Add explicit notice that search was completed
+        search_context += "\n\n---\n**[SYSTEM] You have completed your SEARCH action for this turn. You may now BROWSE one of the URLs above, POST your response, or take another action. You cannot SEARCH again this turn.**\n---\n"
+        
         # Append search results to TEMP.md
         current_temp = agent.read_file(agent.temp_md_path)
         agent.write_file(agent.temp_md_path, current_temp + search_context)
@@ -421,6 +424,9 @@ class Simulation:
         else:
             browse_context = f"\n\n## Web Browse Result\n**URL:** {url}\n**Error:** {result['error']}\n"
             logger.warning(f"Agent {agent.name} failed to browse {url}: {result['error']}")
+        
+        # Add explicit notice that browse was completed
+        browse_context += "\n\n---\n**[SYSTEM] You have completed your web action for this turn. You should now POST your response using the information above, or take another non-web action. You cannot SEARCH or BROWSE again this turn.**\n---\n"
         
         # Append browse result to TEMP.md
         current_temp = agent.read_file(agent.temp_md_path)

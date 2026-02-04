@@ -12,7 +12,7 @@ class Settings:
     LOOP_DELAY = 2.0
     
     # Web browsing settings
-    ENABLE_WEB_BROWSE = False  # Off by default
+    ENABLE_WEB_BROWSE = True  # On by default
     WEB_BROWSE_TIMEOUT = 10    # Request timeout in seconds
     WEB_BROWSE_ALLOWED_DOMAINS = [
         # Encyclopedias & Research

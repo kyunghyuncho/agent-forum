@@ -149,6 +149,7 @@ WEB_OPTIONS_TEXT = """4. **SEARCH**: Search the web for information.
    - Allowed sources: {ALLOWED_SOURCES}.
    - Great for citing Wikipedia, research papers, or news articles to support your arguments.
 
+**Note:** You can only perform ONE web action (SEARCH or BROWSE) per turn. After receiving results, you can POST or take another action.
 **Pro tip:** Using SEARCH or BROWSE to cite sources makes your posts more credible and interesting!
 """
 

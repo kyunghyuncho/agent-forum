@@ -261,7 +261,7 @@
             
             // Render math in modal
             if (typeof renderMathInElement !== 'undefined') {
-                renderMathInElement(document.getElementById('modal-persona'), {
+                const katexOptions = {
                     delimiters: [
                         {left: '$$', right: '$$', display: true},
                         {left: '$', right: '$', display: false},
@@ -269,15 +269,9 @@
                         {left: '\\(', right: '\\)', display: false}
                     ],
                     throwOnError: false
-                });
-                renderMathInElement(document.getElementById('modal-memory'), {
-                    delimiters: [
-                        {left: '$$', right: '$$', display: true},
-                        {left: '$', right: '$', display: false},
-                        {left: '\\[', right: '\\]', display: true},
-                        {left: '\\(', right: '\\)', display: false}
-                    ],
-                    throwOnError: false
+                };
+                ['modal-persona', 'modal-memory'].forEach(id => {
+                    renderMathInElement(document.getElementById(id), katexOptions);
                 });
             }
 

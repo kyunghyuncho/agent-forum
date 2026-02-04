@@ -5,10 +5,12 @@ import shutil
 import json
 import re
 import time
+from datetime import datetime
 from sqlalchemy.orm import Session
 from database import Thread, Post, SessionLocal
 from config import settings
 from llm_client import llm_client
+from web_browser import web_browser
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +95,8 @@ def detect_language(text):
 # --- Prompts ---
 GENESIS_PROMPT = """You are the Simulation Controller (MOTHER). The user has provided the topic: **{TOPIC}**.
 
+**Current Time:** {CURRENT_TIME}
+
 **Language:** The topic is in **{LANGUAGE}**. All agents MUST communicate in {LANGUAGE} throughout the discussion. Their personas, writing style, and all forum posts should be in {LANGUAGE}.
 
 Create **{N}** distinct agents to discuss this topic.
@@ -105,6 +109,8 @@ Output a JSON list where each object contains:
 
 DECISION_PROMPT = """**Context:**
 You are {AGENT_NAME}.
+
+**Current Time:** {CURRENT_TIME}
 
 **Language:** You MUST write all content in **{LANGUAGE}**. Do not switch languages.
 
@@ -196,14 +202,16 @@ class Agent:
         if not read_posts:
             content += "(None)\n\n"
         for p in read_posts:
-            content += f"**ID:** {p.id} | **Author:** {p.agent_name} | **Likes:** {p.likes}\n"
+            post_time = p.created_at.strftime("%y/%m/%d %H:%M:%S") if p.created_at else "Unknown"
+            content += f"**ID:** {p.id} | **Time:** {post_time} | **Author:** {p.agent_name} | **Likes:** {p.likes}\n"
             content += f"{p.content}\n\n---\n"
             
         content += "\n## Recently Added Posts (New)\n\n"
         if not new_posts:
             content += "(No new posts)\n\n"
         for p in new_posts:
-            content += f"**ID:** {p.id} | **Author:** {p.agent_name} | **Likes:** {p.likes}\n"
+            post_time = p.created_at.strftime("%y/%m/%d %H:%M:%S") if p.created_at else "Unknown"
+            content += f"**ID:** {p.id} | **Time:** {post_time} | **Author:** {p.agent_name} | **Likes:** {p.likes}\n"
             content += f"{p.content}\n\n---\n"
             
         self.write_file(self.temp_md_path, content)
@@ -231,6 +239,7 @@ class Agent:
             web_actions = ""
             web_fields = ""
         
+        current_time = datetime.now().strftime("%y/%m/%d %H:%M:%S")
         prompt = DECISION_PROMPT.format(
             AGENT_NAME=self.name,
             AGENT_MD=agent_md,
@@ -240,6 +249,7 @@ class Agent:
             WEB_OPTIONS=web_options,
             WEB_ACTIONS=web_actions,
             WEB_FIELDS=web_fields,
+            CURRENT_TIME=current_time,
         )
         
         # Call LLM
@@ -250,7 +260,8 @@ class Agent:
 class Mother:
     def spawn_agents(self, topic, n=settings.DEFAULT_AGENT_COUNT, retries=3, language="English"):
         logger.info(f"Spawning {n} agents for topic: {topic} (Language: {language})")
-        prompt = GENESIS_PROMPT.format(TOPIC=topic, N=n, LANGUAGE=language)
+        current_time = datetime.now().strftime("%y/%m/%d %H:%M:%S")
+        prompt = GENESIS_PROMPT.format(TOPIC=topic, N=n, LANGUAGE=language, CURRENT_TIME=current_time)
         messages = [{"role": "user", "content": prompt}]
         
         for i in range(retries):
@@ -342,6 +353,122 @@ class Simulation:
     def stop_simulation(self):
         self.running = False
 
+    def _handle_search(self, agent, decision):
+        """
+        Handle SEARCH action: perform web search and get follow-up decision.
+        
+        Returns: (new_decision, new_action) or (None, None) if failed
+        """
+        query = decision.get("search_query", "")
+        logger.info(f"Agent {agent.name} searching: {query}")
+        
+        result = web_browser.search(query)
+        
+        if result["success"]:
+            search_context = web_browser.format_search_results(query, result["results"])
+            logger.info(f"Agent {agent.name} found {len(result['results'])} results")
+        else:
+            search_context = f"\n\n## Search Results for: \"{query}\"\n**Error:** {result['error']}\n"
+            logger.warning(f"Agent {agent.name} search failed: {result['error']}")
+        
+        # Append search results to TEMP.md
+        current_temp = agent.read_file(agent.temp_md_path)
+        agent.write_file(agent.temp_md_path, current_temp + search_context)
+        
+        # Second decision (with browse still available so they can follow up)
+        new_decision = agent.decide(language=self.language, allow_web=True)
+        if not new_decision:
+            logger.warning(f"Agent {agent.name} failed post-search decision.")
+            return None, None
+        
+        new_action = new_decision.get("action")
+        logger.info(f"Agent {agent.name} post-search decided to {new_action}")
+        
+        # If they want to search again, just treat as DO_NOTHING to prevent loops
+        if new_action == "SEARCH":
+            logger.info(f"Agent {agent.name} wanted to search again, skipping.")
+            new_action = "DO_NOTHING"
+        
+        return new_decision, new_action
+
+    def _handle_browse(self, agent, decision):
+        """
+        Handle BROWSE action: fetch and summarize web page, get follow-up decision.
+        
+        Returns: (new_decision, new_action) or (None, None) if failed
+        """
+        url = decision.get("browse_url")
+        reason = decision.get("browse_reason", "general research")
+        
+        logger.info(f"Agent {agent.name} browsing: {url}")
+        
+        # Fetch the page
+        result = web_browser.fetch(url)
+        
+        if result["success"]:
+            # Summarize the content
+            summary = web_browser.summarize(
+                result["content"], url, reason, llm_client
+            )
+            title = result.get("title", "")
+            browse_context = f"\n\n## Web Browse Result\n**URL:** {url}\n**Title:** {title}\n**Summary:**\n{summary}\n"
+            logger.info(f"Agent {agent.name} successfully browsed {url}")
+        else:
+            browse_context = f"\n\n## Web Browse Result\n**URL:** {url}\n**Error:** {result['error']}\n"
+            logger.warning(f"Agent {agent.name} failed to browse {url}: {result['error']}")
+        
+        # Append browse result to TEMP.md
+        current_temp = agent.read_file(agent.temp_md_path)
+        agent.write_file(agent.temp_md_path, current_temp + browse_context)
+        
+        # Second decision (without web options to prevent infinite loops)
+        new_decision = agent.decide(language=self.language, allow_web=False)
+        if not new_decision:
+            logger.warning(f"Agent {agent.name} failed post-browse decision.")
+            return None, None
+        
+        new_action = new_decision.get("action")
+        logger.info(f"Agent {agent.name} post-browse decided to {new_action}")
+        
+        return new_decision, new_action
+
+    def _handle_post(self, agent, decision, db):
+        """Handle POST action: create a new post in the forum."""
+        # Ensure thread exists
+        thread = db.query(Thread).first()
+        if not thread:
+            thread = Thread(title=self.topic)
+            db.add(thread)
+            db.commit()
+        
+        content = decision.get("content")
+        if content:
+            target_id = decision.get("target_post_id") 
+            # If target_id is invalid/not found, treat as root post
+            if target_id and not db.query(Post).filter(Post.id == target_id).first():
+                target_id = None
+
+            post = Post(
+                thread_id=thread.id,
+                agent_name=agent.name,
+                content=content,
+                parent_id=target_id
+            )
+            db.add(post)
+            db.commit()
+
+    def _handle_leave(self, agent):
+        """Handle LEAVE action: move agent to inactive directory."""
+        src = os.path.join("agents", "active", agent.name)
+        dst = os.path.join("agents", "inactive", agent.name)
+        # Ensure inactive dir for this agent doesn't exist or rename
+        if os.path.exists(dst):
+            dst = dst + f"_{int(time.time())}"
+        
+        if os.path.exists(src):
+            shutil.move(src, dst)
+            logger.info(f"Agent {agent.name} left the forum.")
+
     def step(self):
         if not self.running:
             return
@@ -373,121 +500,28 @@ class Simulation:
             action = decision.get("action")
             logger.info(f"Agent {agent.name} decided to {action}")
             
-            # 4. Handle SEARCH action
+            # 4. Handle web actions (SEARCH, BROWSE)
             if action == "SEARCH" and settings.ENABLE_WEB_BROWSE:
-                from web_browser import web_browser
-                
-                query = decision.get("search_query", "")
-                logger.info(f"Agent {agent.name} searching: {query}")
-                
-                result = web_browser.search(query)
-                
-                if result["success"]:
-                    search_context = web_browser.format_search_results(query, result["results"])
-                    logger.info(f"Agent {agent.name} found {len(result['results'])} results")
-                else:
-                    search_context = f"\n\n## Search Results for: \"{query}\"\n**Error:** {result['error']}\n"
-                    logger.warning(f"Agent {agent.name} search failed: {result['error']}")
-                
-                # Append search results to TEMP.md
-                current_temp = agent.read_file(agent.temp_md_path)
-                agent.write_file(agent.temp_md_path, current_temp + search_context)
-                
-                # Second decision (with browse still available so they can follow up)
-                decision = agent.decide(language=self.language, allow_web=True)
-                if not decision:
-                    logger.warning(f"Agent {agent.name} failed post-search decision.")
+                decision, action = self._handle_search(agent, decision)
+                if decision is None:
                     return
-                
-                action = decision.get("action")
-                logger.info(f"Agent {agent.name} post-search decided to {action}")
-                
-                # If they want to search again, just treat as DO_NOTHING to prevent loops
-                if action == "SEARCH":
-                    logger.info(f"Agent {agent.name} wanted to search again, skipping.")
-                    action = "DO_NOTHING"
             
-            # 5. Handle BROWSE action
             if action == "BROWSE" and settings.ENABLE_WEB_BROWSE:
-                from web_browser import web_browser
-                
-                url = decision.get("browse_url")
-                reason = decision.get("browse_reason", "general research")
-                
-                logger.info(f"Agent {agent.name} browsing: {url}")
-                
-                # Fetch the page
-                result = web_browser.fetch(url)
-                
-                if result["success"]:
-                    # Summarize the content
-                    summary = web_browser.summarize(
-                        result["content"], url, reason, llm_client
-                    )
-                    title = result.get("title", "")
-                    browse_context = f"\n\n## Web Browse Result\n**URL:** {url}\n**Title:** {title}\n**Summary:**\n{summary}\n"
-                    logger.info(f"Agent {agent.name} successfully browsed {url}")
-                else:
-                    browse_context = f"\n\n## Web Browse Result\n**URL:** {url}\n**Error:** {result['error']}\n"
-                    logger.warning(f"Agent {agent.name} failed to browse {url}: {result['error']}")
-                
-                # Append browse result to TEMP.md
-                current_temp = agent.read_file(agent.temp_md_path)
-                agent.write_file(agent.temp_md_path, current_temp + browse_context)
-                
-                # Second decision (without web options to prevent infinite loops)
-                decision = agent.decide(language=self.language, allow_web=False)
-                if not decision:
-                    logger.warning(f"Agent {agent.name} failed post-browse decision.")
+                decision, action = self._handle_browse(agent, decision)
+                if decision is None:
                     return
-                
-                action = decision.get("action")
-                logger.info(f"Agent {agent.name} post-browse decided to {action}")
             
-            elif action in ("BROWSE", "SEARCH") and not settings.ENABLE_WEB_BROWSE:
-                # Web actions requested but disabled - treat as DO_NOTHING
+            if action in ("BROWSE", "SEARCH") and not settings.ENABLE_WEB_BROWSE:
                 logger.warning(f"Agent {agent.name} tried to {action} but web browsing is disabled.")
                 action = "DO_NOTHING"
             
-            # 6. Execute
+            # 5. Execute final action
             if action == "POST":
-                # Ensure thread exists
-                thread = db.query(Thread).first()
-                if not thread:
-                    thread = Thread(title=self.topic)
-                    db.add(thread)
-                    db.commit()
-                
-                content = decision.get("content")
-                if content:
-                    target_id = decision.get("target_post_id") 
-                    # If target_id is invalid/not found, we can treat as root post or just ignore parent
-                    if target_id and not db.query(Post).filter(Post.id == target_id).first():
-                        target_id = None
-
-                    post = Post(
-                        thread_id=thread.id,
-                        agent_name=agent.name,
-                        content=content,
-                        parent_id=target_id
-                    )
-                    db.add(post)
-                    db.commit()
-            
+                self._handle_post(agent, decision, db)
             elif action == "LEAVE":
-                # Move to inactive
-                src = os.path.join("agents", "active", agent.name)
-                dst = os.path.join("agents", "inactive", agent.name)
-                # Ensure inactive dir for this agent doesn't exist or rename
-                if os.path.exists(dst):
-                     dst = dst + f"_{int(time.time())}"
-                
-                if os.path.exists(src):
-                    shutil.move(src, dst)
-                    logger.info(f"Agent {agent.name} left the forum.")
-                    # Write postmortem if needed
+                self._handle_leave(agent)
             
-            # Like?
+            # 6. Handle likes
             like_id = decision.get("like_post_id")
             if like_id:
                 post = db.query(Post).filter(Post.id == like_id).first()
@@ -495,7 +529,7 @@ class Simulation:
                     post.likes += 1
                     db.commit()
             
-            # Update Memory
+            # 7. Update Memory
             new_memory = decision.get("updated_memory")
             if new_memory:
                 agent.write_file(agent.memory_md_path, new_memory)

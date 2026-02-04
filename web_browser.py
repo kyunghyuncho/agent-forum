@@ -6,7 +6,7 @@ content from a curated allowlist of trusted, factual sources.
 """
 
 import logging
-from urllib.parse import urlparse, quote_plus
+from urllib.parse import urlparse, quote_plus, parse_qs
 
 import httpx
 from bs4 import BeautifulSoup
@@ -344,8 +344,18 @@ If the content seems irrelevant to the stated reason, mention that briefly."""
                         continue
                     
                     title = title_elem.get_text(strip=True)
-                    # DuckDuckGo uses redirect URLs, extract actual URL
-                    url = title_elem.get("href", "")
+                    # DuckDuckGo uses redirect URLs like /l/?...&uddg=<encoded_url>
+                    # Extract actual URL from the uddg query parameter
+                    raw_url = title_elem.get("href", "")
+                    url = ""
+                    if raw_url:
+                        parsed_redirect = urlparse(raw_url)
+                        query_params = parse_qs(parsed_redirect.query)
+                        if "uddg" in query_params and query_params["uddg"]:
+                            url = query_params["uddg"][0]
+                        else:
+                            # Fallback: use raw URL if uddg not found
+                            url = raw_url
                     
                     # Extract snippet
                     snippet_elem = result_div.select_one(".result__snippet")

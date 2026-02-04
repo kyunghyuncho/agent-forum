@@ -3,6 +3,7 @@ import random
 import logging
 import shutil
 import json
+import re
 from sqlalchemy.orm import Session
 from database import Thread, Post, SessionLocal
 from config import settings
@@ -10,17 +11,102 @@ from llm_client import llm_client
 
 logger = logging.getLogger(__name__)
 
+# --- Language Detection ---
+def detect_language(text):
+    """Simple language detection using character ranges and common patterns."""
+    text = text.strip()
+    if not text:
+        return "English"
+    
+    # Count characters in different scripts
+    korean = len(re.findall(r'[\uAC00-\uD7AF\u1100-\u11FF]', text))
+    japanese = len(re.findall(r'[\u3040-\u309F\u30A0-\u30FF]', text))
+    chinese = len(re.findall(r'[\u4E00-\u9FFF]', text))
+    cyrillic = len(re.findall(r'[\u0400-\u04FF]', text))
+    arabic = len(re.findall(r'[\u0600-\u06FF]', text))
+    thai = len(re.findall(r'[\u0E00-\u0E7F]', text))
+    hebrew = len(re.findall(r'[\u0590-\u05FF]', text))
+    devanagari = len(re.findall(r'[\u0900-\u097F]', text))
+    
+    # Spanish/French/German detection via accents and common words
+    latin_accented = len(re.findall(r'[àáâãäåçèéêëìíîïñòóôõöùúûüýÿœæ]', text.lower()))
+    
+    total_chars = len(text)
+    if total_chars == 0:
+        return "English"
+    
+    # Check for dominant script
+    if korean / total_chars > 0.1:
+        return "Korean"
+    if japanese / total_chars > 0.1:
+        return "Japanese"
+    if chinese / total_chars > 0.1:
+        return "Chinese"
+    if cyrillic / total_chars > 0.1:
+        return "Russian"
+    if arabic / total_chars > 0.1:
+        return "Arabic"
+    if thai / total_chars > 0.1:
+        return "Thai"
+    if hebrew / total_chars > 0.1:
+        return "Hebrew"
+    if devanagari / total_chars > 0.1:
+        return "Hindi"
+    
+    # For Latin scripts, use common word patterns
+    text_lower = text.lower()
+    
+    # Spanish indicators
+    spanish_words = ['que', 'de', 'el', 'la', 'los', 'las', 'es', 'en', 'por', 'para', 'con', 'como', 'más', 'pero', 'sobre', '¿', '¡']
+    if any(w in text_lower.split() for w in spanish_words) or '¿' in text or '¡' in text:
+        return "Spanish"
+    
+    # French indicators
+    french_words = ['le', 'la', 'les', 'de', 'du', 'des', 'est', 'sont', 'avec', 'pour', 'dans', 'sur', "qu'", "c'est", 'très', 'être']
+    if any(w in text_lower.split() for w in french_words) or "'" in text and latin_accented > 0:
+        if any(w in text_lower for w in ['qu\'', 'c\'est', 'n\'est', 'd\'un']):
+            return "French"
+    
+    # German indicators
+    german_words = ['der', 'die', 'das', 'und', 'ist', 'nicht', 'von', 'mit', 'für', 'auf', 'sind', 'werden', 'auch', 'über']
+    if any(w in text_lower.split() for w in german_words) or 'ß' in text or 'ü' in text or 'ö' in text or 'ä' in text:
+        return "German"
+    
+    # Portuguese indicators  
+    portuguese_words = ['que', 'de', 'não', 'em', 'para', 'com', 'uma', 'são', 'também', 'mais', 'muito', 'pela', 'pelo']
+    if any(w in text_lower.split() for w in portuguese_words) or 'ã' in text or 'ç' in text:
+        return "Portuguese"
+    
+    # Italian indicators
+    italian_words = ['che', 'di', 'non', 'è', 'per', 'sono', 'con', 'della', 'anche', 'come', 'questo', 'quello', 'tutto']
+    if any(w in text_lower.split() for w in italian_words):
+        return "Italian"
+    
+    # Dutch indicators
+    dutch_words = ['de', 'het', 'een', 'van', 'en', 'is', 'niet', 'dat', 'op', 'zijn', 'voor', 'met', 'aan', 'naar']
+    if any(w in text_lower.split() for w in dutch_words) and 'ij' in text_lower:
+        return "Dutch"
+    
+    return "English"
+
 # --- Prompts ---
 GENESIS_PROMPT = """You are the Simulation Controller (MOTHER). The user has provided the topic: **{TOPIC}**.
-Create **{N}** distinct agents to discuss this.
-**Constraint:** Ensure maximum diversity. Create a mix of optimists, pessimists, trolls, mediators, and experts.
+
+**Language:** The topic is in **{LANGUAGE}**. All agents MUST communicate in {LANGUAGE} throughout the discussion. Their personas, writing style, and all forum posts should be in {LANGUAGE}.
+
+Create **{N}** distinct agents to discuss this topic.
+**Constraint:** Ensure maximum diversity. Create a mix of optimists, pessimists, trolls, mediators, and experts. All agents must write in {LANGUAGE}.
+
 Output a JSON list where each object contains:
-`name`: string
-`filename`: string (snake_case)
-`agent_md_content`: string (The full text for AGENT.md)"""
+`name`: string (can be a {LANGUAGE} name if appropriate)
+`filename`: string (snake_case, ASCII only)
+`agent_md_content`: string (The full text for AGENT.md, written in {LANGUAGE})"""
 
 DECISION_PROMPT = """**Context:**
 You are {AGENT_NAME}.
+
+**Language:** You MUST write all content in **{LANGUAGE}**. Do not switch languages.
+
 Your Profile:
 {AGENT_MD}
 
@@ -31,9 +117,9 @@ Forum Feed (Recent read and new posts):
 {TEMP_MD}
 
 **Task:**
-Decide your next move.
+Decide your next move. Remember to write in {LANGUAGE}.
 1. **DO_NOTHING**: If the conversation is boring or you have nothing to add.
-2. **POST**: Write a reply or a new thread. Use Markdown. You can quote others using `>`.
+2. **POST**: Write a reply or a new thread. Use Markdown. You can quote others using `>`. Write in {LANGUAGE}.
 3. **LEAVE**: Leave the forum permanently if you are frustrated, satisfied, or bored.
 
 **Output format (JSON only):**
@@ -41,8 +127,8 @@ Decide your next move.
 "action": "DO_NOTHING" | "POST" | "LEAVE",
 "target_post_id": (int or null, ID of the post you are replying to),
 "like_post_id": (int or null, ID of a post you want to like),
-"content": (string, markdown formatted, null if action is not POST),
-"updated_memory": (string, the new content for your MEMORY.md file)
+"content": (string in {LANGUAGE}, markdown formatted, null if action is not POST),
+"updated_memory": (string in {LANGUAGE}, the new content for your MEMORY.md file)
 }}"""
 
 class Agent:
@@ -112,7 +198,7 @@ class Agent:
             state["last_read_id"] = max_id
             self.save_state(state)
 
-    def decide(self):
+    def decide(self, language="English"):
         agent_md = self.read_file(self.agent_md_path)
         memory_md = self.read_file(self.memory_md_path)
         temp_md = self.read_file(self.temp_md_path)
@@ -121,7 +207,8 @@ class Agent:
             AGENT_NAME=self.name,
             AGENT_MD=agent_md,
             MEMORY_MD=memory_md,
-            TEMP_MD=temp_md
+            TEMP_MD=temp_md,
+            LANGUAGE=language
         )
         
         # Call LLM
@@ -130,9 +217,9 @@ class Agent:
         return response
 
 class Mother:
-    def spawn_agents(self, topic, n=settings.DEFAULT_AGENT_COUNT, retries=3):
-        logger.info(f"Spawning {n} agents for topic: {topic}")
-        prompt = GENESIS_PROMPT.format(TOPIC=topic, N=n)
+    def spawn_agents(self, topic, n=settings.DEFAULT_AGENT_COUNT, retries=3, language="English"):
+        logger.info(f"Spawning {n} agents for topic: {topic} (Language: {language})")
+        prompt = GENESIS_PROMPT.format(TOPIC=topic, N=n, LANGUAGE=language)
         messages = [{"role": "user", "content": prompt}]
         
         for i in range(retries):
@@ -196,11 +283,13 @@ class Simulation:
         self.mother = Mother()
         self.running = False
         self.topic = "General AI Discussion"
+        self.language = "English"
 
     def start_simulation(self, topic):
         self.topic = topic
+        self.language = detect_language(topic)
         self.running = True
-        logger.info(f"Starting simulation on topic: {topic}")
+        logger.info(f"Starting simulation on topic: {topic} (Detected language: {self.language})")
         
         # Initialize DB Thread if needed
         db = SessionLocal()
@@ -217,7 +306,7 @@ class Simulation:
              os.makedirs(agents_dir)
              
         if not os.listdir(agents_dir):
-             self.mother.spawn_agents(topic)
+             self.mother.spawn_agents(topic, language=self.language)
 
     def stop_simulation(self):
         self.running = False
@@ -245,7 +334,7 @@ class Simulation:
             agent.perceive(db)
             
             # 3. Decide
-            decision = agent.decide()
+            decision = agent.decide(language=self.language)
             if not decision:
                 logger.warning(f"Agent {agent.name} failed to decide (JSON parse error or API fail).")
                 return

@@ -306,6 +306,22 @@ async def get_posts(request: Request, db: Session = Depends(get_db)):
     
     return templates.TemplateResponse("thread.html", {"request": request, "nodes": root_nodes})
 
+@app.get("/posts/json")
+async def get_posts_json(db: Session = Depends(get_db)):
+    """Return all posts as JSON for incremental updates."""
+    posts = db.query(Post).order_by(Post.created_at.asc()).all()
+    return [
+        {
+            "id": p.id,
+            "parent_id": p.parent_id,
+            "agent_name": p.agent_name,
+            "content": p.content,
+            "likes": p.likes,
+            "created_at": p.created_at.strftime('%H:%M:%S')
+        }
+        for p in posts
+    ]
+
 @app.get("/agents_list", response_class=HTMLResponse)
 async def get_agents_list(request: Request):
     agents_dir = "agents/active"

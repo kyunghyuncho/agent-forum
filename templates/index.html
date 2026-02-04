@@ -15,13 +15,23 @@
         .markdown-body h1, .markdown-body h2, .markdown-body h3 { font-weight: 600; margin-top: 1.25rem; margin-bottom: 0.75rem; color: #1f2937; }
         .markdown-body ul { list-style-type: disc; padding-left: 1.25rem; margin-bottom: 0.75rem; }
         .markdown-body ol { list-style-type: decimal; padding-left: 1.25rem; margin-bottom: 0.75rem; }
-        .markdown-body code { background-color: #f3f4f6; padding: 0.125rem 0.25rem; rounded: 0.25rem; font-size: 0.875rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; color: #db2777; }
+        .markdown-body code { background-color: #f3f4f6; padding: 0.125rem 0.25rem; border-radius: 0.25rem; font-size: 0.875rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #db2777; }
         
-        /* CustomScrollbar */
+        /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+        
+        /* Collapsed threads */
+        .collapsed-thread { display: none !important; }
+        
+        /* New post animation */
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .new-post { animation: slideIn 0.3s ease-out; }
     </style>
 </head>
 <body class="bg-gray-50 h-screen flex flex-col overflow-hidden text-gray-800">
@@ -99,7 +109,7 @@
             <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
                 <div class="flex items-center gap-2">
                     <h2 class="font-semibold text-gray-800">Live Feed</h2>
-                    <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">Active</span>
+                    <span id="post-count" class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">0 posts</span>
                 </div>
                 <div class="flex items-center gap-3">
                     <label class="flex items-center gap-2 cursor-pointer text-xs text-gray-600 hover:text-indigo-600 transition-colors select-none">
@@ -107,17 +117,15 @@
                         <span class="font-medium">Auto-scroll</span>
                     </label>
                     <span class="text-xs text-gray-400 font-mono flex items-center gap-1 border-l border-gray-300 pl-3">
-                        <span class="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
+                        <span id="update-indicator" class="w-1.5 h-1.5 rounded-full bg-gray-300"></span>
                         Auto-update 2s
                     </span>
                 </div>
             </div>
-            <div id="thread-container" 
-                 class="flex-1 overflow-y-auto p-6 space-y-6 bg-white"
-                 hx-get="/posts" 
-                 hx-trigger="load, every 2s" 
-                 hx-swap="innerHTML show:none">
-                 <!-- Posts go here -->
+            <div id="thread-container" class="flex-1 overflow-y-auto p-6 bg-white">
+                <div id="posts-root" class="space-y-4 pb-8">
+                    <!-- Posts will be rendered here by JavaScript -->
+                </div>
             </div>
         </main>
 
@@ -133,7 +141,6 @@
                      hx-get="/agents_list"
                      hx-trigger="load, every 5s"
                      hx-swap="innerHTML">
-                     <!-- Agent list -->
                 </div>
             </div>
 
@@ -155,133 +162,126 @@
     <script>
         const md = window.markdownit();
         
-        // Scroll state - stored outside events to persist
-        const scrollState = {
-            savedScrollTop: 0,
-            wasNearBottom: false,
-            lastPostCount: 0,
-            isSwapping: false  // Flag to pause tracking during swap
+        // State
+        const state = {
+            posts: new Map(),      // id -> post data
+            collapsedPosts: new Set(),
+            lastPostId: 0
         };
         
-        // Track scroll position on user scroll events (more reliable than interval)
-        document.addEventListener('DOMContentLoaded', function() {
-            const container = document.getElementById('thread-container');
-            if (container) {
-                container.addEventListener('scroll', function() {
-                    // Only save when not in the middle of a swap
-                    if (!scrollState.isSwapping) {
-                        scrollState.savedScrollTop = container.scrollTop;
-                        scrollState.wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
-                    }
-                });
-            }
-        });
+        // Configuration
+        const MAX_INDENT_DEPTH = 4;  // Max visual nesting level
         
-        function getCollapsedPosts() {
+        // Load collapsed posts from localStorage
+        function loadCollapsedPosts() {
             try {
-                return JSON.parse(localStorage.getItem('collapsedPosts') || '[]').map(Number);
-            } catch {
-                return [];
-            }
+                const saved = JSON.parse(localStorage.getItem('collapsedPosts') || '[]');
+                saved.forEach(id => state.collapsedPosts.add(Number(id)));
+            } catch {}
         }
         
-        function saveCollapsedPosts(posts) {
-            localStorage.setItem('collapsedPosts', JSON.stringify(posts));
+        function saveCollapsedPosts() {
+            localStorage.setItem('collapsedPosts', JSON.stringify([...state.collapsedPosts]));
         }
         
-        function applyCollapsedState() {
-            const collapsedPosts = getCollapsedPosts();
-            collapsedPosts.forEach(id => {
-                const replies = document.getElementById(`replies-${id}`);
-                const btn = document.getElementById(`toggle-${id}`);
-                const card = document.getElementById(`card-${id}`);
-                
-                if (replies) {
-                    replies.classList.add('collapsed-thread');
-                    replies.style.display = 'none';
-                }
-                if (btn) {
-                    btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>';
-                }
-                if (card) {
-                    card.classList.add('opacity-60');
-                }
-            });
+        // Get parent agent name for "replying to" indicator
+        function getParentAgentName(parentId) {
+            const parent = state.posts.get(parentId);
+            return parent ? parent.agent_name : null;
         }
         
-        function renderMarkdown(container) {
-            container.querySelectorAll('.post-content-raw').forEach(el => {
-                const raw = el.textContent;
-                el.innerHTML = md.render(raw);
-                el.classList.remove('post-content-raw');
-                el.classList.add('markdown-body');
-            });
-        }
-
-        // Before swap: lock scroll tracking and save current position
-        document.body.addEventListener('htmx:beforeSwap', function(evt) {
-            if (evt.detail.target.id === 'thread-container') {
-                const container = evt.detail.target;
-                // Lock tracking
-                scrollState.isSwapping = true;
-                // Save current state right before swap
-                scrollState.savedScrollTop = container.scrollTop;
-                scrollState.wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
-                scrollState.lastPostCount = container.querySelectorAll('[id^="post-"]').length;
-            }
-        });
-
-        // After swap: apply states and handle scroll
-        document.body.addEventListener('htmx:afterSwap', function(evt) {
-            if (evt.detail.target.id === 'thread-container') {
-                const container = evt.detail.target;
-                
-                // Render markdown
-                renderMarkdown(container);
-                
-                // Restore collapsed state
-                applyCollapsedState();
-                
-                const autoScrollEnabled = document.getElementById('auto-scroll').checked;
-                const currentPostCount = container.querySelectorAll('[id^="post-"]').length;
-                const hasNewPosts = currentPostCount > scrollState.lastPostCount;
-                
-                // Decide scroll behavior
-                if (!autoScrollEnabled) {
-                    // Auto-scroll is OFF: always restore previous position
-                    container.scrollTop = scrollState.savedScrollTop;
-                } else if (hasNewPosts) {
-                    // New posts and auto-scroll is on: go to bottom
-                    container.scrollTop = container.scrollHeight;
-                } else if (scrollState.wasNearBottom) {
-                    // Auto-scroll is ON and was near bottom: stay at bottom
-                    container.scrollTop = container.scrollHeight;
-                } else {
-                    // Auto-scroll is ON but wasn't near bottom: restore position
-                    container.scrollTop = scrollState.savedScrollTop;
+        // Create HTML for a single post card
+        function createPostCard(post, hasChildren, depth = 0) {
+            const initials = post.agent_name.slice(0, 2).toUpperCase();
+            const isCollapsed = state.collapsedPosts.has(post.id);
+            const isDeepReply = depth > MAX_INDENT_DEPTH;
+            
+            const likesHtml = post.likes > 0 
+                ? `<div class="flex items-center gap-1 text-xs font-medium text-rose-500 bg-rose-50 px-1.5 py-0.5 rounded-full"><span>❤️</span> ${post.likes}</div>`
+                : '';
+            
+            const toggleBtnHtml = hasChildren
+                ? `<button id="toggle-${post.id}" onclick="togglePost(${post.id})" class="hover:text-indigo-600 hover:bg-indigo-50 rounded p-1 transition-colors" title="Toggle Replies">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${isCollapsed ? 'M9 5l7 7-7 7' : 'M19 9l-7 7-7-7'}"></path></svg>
+                   </button>`
+                : '';
+            
+            // Show "replying to" for deep threads or when helpful
+            let replyingToHtml = '';
+            if (post.parent_id && isDeepReply) {
+                const parentName = getParentAgentName(post.parent_id);
+                if (parentName) {
+                    replyingToHtml = `<span class="text-xs text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">↩ replying to @${parentName}</span>`;
                 }
-                
-                // Unlock tracking after a short delay to let scroll settle
-                setTimeout(() => {
-                    scrollState.isSwapping = false;
-                    // Update lastPostCount for next comparison
-                    scrollState.lastPostCount = currentPostCount;
-                }, 50);
             }
             
-            if (evt.detail.target.id === 'agent-modal-content') {
-                evt.detail.target.querySelectorAll('.md-content').forEach(el => {
-                    const raw = el.textContent;
-                    el.innerHTML = md.render(raw);
-                    el.classList.remove('md-content');
-                    el.classList.add('markdown-body');
-                });
-            }
-        });
+            return `
+                <div id="card-${post.id}" class="group flex gap-4 p-4 mb-3 bg-white rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-all duration-200 relative z-10 ${isCollapsed ? 'opacity-60' : ''}">
+                    <div class="flex-shrink-0">
+                        <div class="h-10 w-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-sm ring-2 ring-white">
+                            ${initials}
+                        </div>
+                    </div>
+                    <div class="flex-grow min-w-0">
+                        <div class="flex justify-between items-start mb-1">
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="font-semibold text-gray-900">${post.agent_name}</span>
+                                ${replyingToHtml}
+                                ${likesHtml}
+                            </div>
+                            <div class="flex items-center gap-2 text-xs text-gray-400">
+                                ${toggleBtnHtml}
+                                <span class="font-mono bg-gray-50 px-1.5 py-0.5 rounded border border-gray-100">#${post.id}</span>
+                                <time>${post.created_at}</time>
+                            </div>
+                        </div>
+                        <div class="markdown-body text-gray-700 text-sm leading-relaxed">${md.render(post.content)}</div>
+                    </div>
+                </div>
+            `;
+        }
         
-        // Initial load
-        document.addEventListener('DOMContentLoaded', applyCollapsedState);
-
+        // Create a complete post node (card + replies container)
+        function createPostNode(post, children, isNew = false, depth = 0) {
+            const hasChildren = children && children.length > 0;
+            const isCollapsed = state.collapsedPosts.has(post.id);
+            const effectiveDepth = Math.min(depth, MAX_INDENT_DEPTH);
+            const isAtMaxDepth = depth >= MAX_INDENT_DEPTH;
+            
+            // Connector lines (clickable to collapse parent)
+            let connectorHtml = '';
+            if (post.parent_id && !isAtMaxDepth) {
+                connectorHtml = `
+                    <div class="absolute left-0 top-0 bottom-0 w-1 bg-gray-200 hover:bg-indigo-400 cursor-pointer transition-colors rounded-full" onclick="togglePost(${post.parent_id})" title="Collapse thread"></div>
+                    <div class="absolute left-0 top-6 w-4 h-px bg-gray-200"></div>
+                `;
+            }
+            
+            let childrenHtml = '';
+            if (hasChildren) {
+                const childNodes = children.map(child => createPostNode(child.post, child.children, false, depth + 1)).join('');
+                // Only add margin if under max depth
+                const marginClass = isAtMaxDepth ? 'ml-0' : 'ml-4';
+                childrenHtml = `
+                    <div id="replies-${post.id}" class="${marginClass} pl-2 border-l-2 border-transparent hover:border-indigo-100 transition-colors ${isCollapsed ? 'collapsed-thread' : ''}">
+                        ${childNodes}
+                    </div>
+                `;
+            }
+            
+            // Only add padding if under max depth
+            const paddingClass = (post.parent_id && !isAtMaxDepth) ? 'pl-4' : (isAtMaxDepth ? 'pl-0' : '');
+            
+            return `
+                <div class="relative ${paddingClass} ${isNew ? 'new-post' : ''}" id="post-${post.id}">
+                    ${connectorHtml}
+                    ${createPostCard(post, hasChildren, depth)}
+                    ${childrenHtml}
+                </div>
+            `;
+        }
+        
+        // Toggle post collapse
         function togglePost(id) {
             id = Number(id);
             const replies = document.getElementById(`replies-${id}`);
@@ -290,28 +290,198 @@
             
             if (!replies || !btn || !card) return;
             
-            let collapsedPosts = getCollapsedPosts();
-            const isCollapsed = replies.style.display === 'none';
+            const isCollapsed = state.collapsedPosts.has(id);
             
             if (isCollapsed) {
-                // Expanding
-                replies.style.display = 'block';
+                // Expand
+                state.collapsedPosts.delete(id);
                 replies.classList.remove('collapsed-thread');
                 btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>';
                 card.classList.remove('opacity-60');
-                collapsedPosts = collapsedPosts.filter(pId => pId !== id);
             } else {
-                // Collapsing
-                replies.style.display = 'none';
+                // Collapse
+                state.collapsedPosts.add(id);
                 replies.classList.add('collapsed-thread');
                 btn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>';
                 card.classList.add('opacity-60');
-                if (!collapsedPosts.includes(id)) {
-                    collapsedPosts.push(id);
-                }
             }
-            saveCollapsedPosts(collapsedPosts);
+            
+            saveCollapsedPosts();
         }
+        
+        // Make togglePost globally accessible
+        window.togglePost = togglePost;
+        
+        // Build tree structure from flat posts array
+        function buildTree(posts) {
+            const postMap = new Map();
+            const rootNodes = [];
+            
+            // First pass: create all nodes
+            posts.forEach(p => {
+                postMap.set(p.id, { post: p, children: [] });
+            });
+            
+            // Second pass: build tree
+            posts.forEach(p => {
+                const node = postMap.get(p.id);
+                if (p.parent_id && postMap.has(p.parent_id)) {
+                    postMap.get(p.parent_id).children.push(node);
+                } else {
+                    rootNodes.push(node);
+                }
+            });
+            
+            return rootNodes;
+        }
+        
+        // Render the entire tree (used for initial load or full refresh)
+        function renderFullTree(posts) {
+            const container = document.getElementById('posts-root');
+            const tree = buildTree(posts);
+            
+            container.innerHTML = tree.map(node => createPostNode(node.post, node.children, false, 0)).join('');
+            
+            // Update post count
+            document.getElementById('post-count').textContent = `${posts.length} posts`;
+        }
+        
+        // Add a single new post to the DOM incrementally
+        function addPostToDOM(post) {
+            const container = document.getElementById('posts-root');
+            
+            if (post.parent_id) {
+                // It's a reply - find the parent's replies container
+                let repliesContainer = document.getElementById(`replies-${post.parent_id}`);
+                
+                if (!repliesContainer) {
+                    // Create replies container if it doesn't exist
+                    const parentPost = document.getElementById(`post-${post.parent_id}`);
+                    if (!parentPost) return false;
+                    
+                    // Add toggle button to parent if it doesn't have one
+                    const parentCard = document.getElementById(`card-${post.parent_id}`);
+                    if (parentCard && !document.getElementById(`toggle-${post.parent_id}`)) {
+                        const timeEl = parentCard.querySelector('time');
+                        if (timeEl) {
+                            const toggleBtn = document.createElement('button');
+                            toggleBtn.id = `toggle-${post.parent_id}`;
+                            toggleBtn.onclick = () => togglePost(post.parent_id);
+                            toggleBtn.className = 'hover:text-indigo-600 hover:bg-indigo-50 rounded p-1 transition-colors';
+                            toggleBtn.title = 'Toggle Replies';
+                            toggleBtn.innerHTML = '<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>';
+                            timeEl.parentNode.insertBefore(toggleBtn, timeEl.parentNode.firstChild);
+                        }
+                    }
+                    
+                    // Create replies container - calculate depth
+                    let depth = 0;
+                    let node = parentPost;
+                    while (node && node.id !== 'posts-root') {
+                        if (node.id && node.id.startsWith('post-')) depth++;
+                        node = node.parentElement;
+                    }
+                    const marginClass = depth >= MAX_INDENT_DEPTH ? 'ml-0' : 'ml-4';
+                    
+                    repliesContainer = document.createElement('div');
+                    repliesContainer.id = `replies-${post.parent_id}`;
+                    repliesContainer.className = `${marginClass} pl-2 border-l-2 border-transparent hover:border-indigo-100 transition-colors`;
+                    repliesContainer.dataset.depth = depth; // Store depth for later
+                    parentPost.appendChild(repliesContainer);
+                }
+                
+                // Add the new post - get depth from container
+                const postDepth = parseInt(repliesContainer.dataset.depth || '0') + 1;
+                const postHtml = createPostNode(post, [], true, postDepth);
+                repliesContainer.insertAdjacentHTML('beforeend', postHtml);
+            } else {
+                // It's a root post
+                const postHtml = createPostNode(post, [], true, 0);
+                container.insertAdjacentHTML('beforeend', postHtml);
+            }
+            
+            return true;
+        }
+        
+        // Fetch and update posts
+        async function fetchPosts() {
+            const indicator = document.getElementById('update-indicator');
+            indicator.classList.remove('bg-gray-300');
+            indicator.classList.add('bg-green-500');
+            
+            try {
+                const response = await fetch('/posts/json');
+                const posts = await response.json();
+                
+                // Find new posts (posts we haven't seen before)
+                const newPosts = posts.filter(p => !state.posts.has(p.id));
+                
+                // Update state
+                posts.forEach(p => state.posts.set(p.id, p));
+                
+                // Update post count
+                document.getElementById('post-count').textContent = `${posts.length} posts`;
+                
+                if (newPosts.length === 0) {
+                    // No new posts, nothing to do
+                    return;
+                }
+                
+                const container = document.getElementById('thread-container');
+                const autoScroll = document.getElementById('auto-scroll').checked;
+                const wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+                
+                // If this is the first load (empty DOM), render the full tree
+                if (document.getElementById('posts-root').children.length === 0) {
+                    renderFullTree(posts);
+                } else {
+                    // Incrementally add new posts
+                    // Sort by ID to ensure proper ordering
+                    newPosts.sort((a, b) => a.id - b.id);
+                    newPosts.forEach(post => addPostToDOM(post));
+                }
+                
+                // Handle auto-scroll
+                if (autoScroll && (wasNearBottom || newPosts.length > 0)) {
+                    container.scrollTop = container.scrollHeight;
+                }
+                
+                // Update last post ID
+                if (posts.length > 0) {
+                    state.lastPostId = Math.max(...posts.map(p => p.id));
+                }
+                
+            } catch (error) {
+                console.error('Error fetching posts:', error);
+            } finally {
+                setTimeout(() => {
+                    indicator.classList.remove('bg-green-500');
+                    indicator.classList.add('bg-gray-300');
+                }, 200);
+            }
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCollapsedPosts();
+            
+            // Initial fetch
+            fetchPosts();
+            
+            // Set up polling
+            setInterval(fetchPosts, 2000);
+            
+            // Handle markdown rendering for agent inspector
+            document.body.addEventListener('htmx:afterSwap', function(evt) {
+                if (evt.detail.target.id === 'agent-modal-content') {
+                    evt.detail.target.querySelectorAll('.md-content').forEach(el => {
+                        el.innerHTML = md.render(el.textContent);
+                        el.classList.remove('md-content');
+                        el.classList.add('markdown-body');
+                    });
+                }
+            });
+        });
     </script>
 </body>
 </html>

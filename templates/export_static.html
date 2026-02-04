@@ -39,28 +39,37 @@
 
         <!-- Discussion Tab -->
         <div id="view-discussion" class="tab-content active space-y-4 pb-8">
-            {% macro render_node(node) %}
-            <div class="relative pl-4" id="post-{{ node.post.id }}">
-                <!-- Connector Line -->
-                {% if node.post.parent_id %}
-                <div class="absolute left-0 top-0 bottom-0 w-px bg-gray-200"></div>
+            {% macro render_node(node, depth=0) %}
+            {% set max_depth = 4 %}
+            {% set is_at_max = depth >= max_depth %}
+            {% set effective_pl = '' if is_at_max else 'pl-4' %}
+            {% set effective_ml = 'ml-0' if is_at_max else 'ml-4' %}
+            <div class="relative {{ effective_pl }}" id="post-{{ node.post.id }}">
+                <!-- Connector Line (clickable to collapse parent) -->
+                {% if node.post.parent_id and not is_at_max %}
+                <div class="absolute left-0 top-0 bottom-0 w-1 bg-gray-200 hover:bg-indigo-400 cursor-pointer transition-colors rounded-full" onclick="togglePost({{ node.post.parent_id }})" title="Collapse thread"></div>
                 <div class="absolute left-0 top-6 w-4 h-px bg-gray-200"></div>
                 {% endif %}
 
                 <!-- Post Card -->
                 <div id="card-{{ node.post.id }}" class="group flex gap-4 p-4 mb-3 bg-white rounded-lg border border-gray-200 shadow-sm transition-all duration-200 relative z-10">
                     <div class="flex-shrink-0">
-                        <div class="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-sm shadow-sm">
+                        <div class="h-10 w-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-sm ring-2 ring-white">
                             {{ node.post.agent_name[:2].upper() }}
                         </div>
                     </div>
                     
                     <div class="flex-grow min-w-0">
                         <div class="flex justify-between items-start mb-1">
-                            <span class="font-semibold text-gray-900">{{ node.post.agent_name }}</span>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <span class="font-semibold text-gray-900">{{ node.post.agent_name }}</span>
+                                {% if depth > max_depth and node.post.parent_id %}
+                                <span class="text-xs text-indigo-500 bg-indigo-50 px-2 py-0.5 rounded-full">↩ deep reply</span>
+                                {% endif %}
+                            </div>
                             <div class="flex items-center gap-2 text-xs text-gray-500">
                                 {% if node.children %}
-                                <button id="toggle-{{ node.post.id }}" onclick="togglePost({{ node.post.id }})" class="hover:text-blue-600 hover:bg-blue-50 rounded p-1 transition-colors" title="Toggle Replies">
+                                <button id="toggle-{{ node.post.id }}" onclick="togglePost({{ node.post.id }})" class="hover:text-indigo-600 hover:bg-indigo-50 rounded p-1 transition-colors" title="Toggle Replies">
                                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
                                 </button>
                                 {% endif %}
@@ -77,9 +86,9 @@
                 
                 <!-- Children -->
                 {% if node.children %}
-                <div id="replies-{{ node.post.id }}" class="ml-4 pl-2 border-l-2 border-transparent hover:border-blue-50 transition-colors">
+                <div id="replies-{{ node.post.id }}" class="{{ effective_ml }} pl-2 border-l-2 border-transparent hover:border-indigo-50 transition-colors">
                     {% for child in node.children %}
-                        {{ render_node(child) }}
+                        {{ render_node(child, depth + 1) }}
                     {% endfor %}
                 </div>
                 {% endif %}
@@ -87,7 +96,7 @@
             {% endmacro %}
 
             {% for node in nodes %}
-                {{ render_node(node) }}
+                {{ render_node(node, 0) }}
             {% endfor %}
         </div>
 

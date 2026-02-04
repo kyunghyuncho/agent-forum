@@ -4,10 +4,13 @@ import logging
 import shutil
 import json
 import re
+import time
+from datetime import datetime
 from sqlalchemy.orm import Session
 from database import Thread, Post, SessionLocal
 from config import settings
 from llm_client import llm_client
+from web_browser import web_browser
 
 logger = logging.getLogger(__name__)
 
@@ -92,18 +95,31 @@ def detect_language(text):
 # --- Prompts ---
 GENESIS_PROMPT = """You are the Simulation Controller (MOTHER). The user has provided the topic: **{TOPIC}**.
 
+**Current Time:** {CURRENT_TIME} (format: YY/MM/DD HH:MM:SS)
+
 **Language:** The topic is in **{LANGUAGE}**. All agents MUST communicate in {LANGUAGE} throughout the discussion. Their personas, writing style, and all forum posts should be in {LANGUAGE}.
 
+**Pool Style:** {POOL_STYLE}
+{POOL_STYLE_DESCRIPTION}
+
 Create **{N}** distinct agents to discuss this topic.
-**Constraint:** Ensure maximum diversity. Create a mix of optimists, pessimists, trolls, mediators, and experts. All agents must write in {LANGUAGE}.
+**Constraint:** Ensure maximum diversity within the chosen style. All agents must write in {LANGUAGE}.
 
 Output a JSON list where each object contains:
 `name`: string (can be a {LANGUAGE} name if appropriate)
 `filename`: string (snake_case, ASCII only)
 `agent_md_content`: string (The full text for AGENT.md, written in {LANGUAGE})"""
 
+POOL_STYLE_DESCRIPTIONS = {
+    "professional": "Create agents that are serious professionals: industry experts, analysts, researchers, consultants, and academics. They should be formal, cite sources, use data-driven arguments, and maintain professional discourse. Include diverse viewpoints but keep discussions substantive and respectful.",
+    "creative": "Create agents with creative and artistic personalities: writers, philosophers, visionaries, contrarians, and dreamers. They can use metaphors, tell stories, challenge assumptions, and explore unconventional ideas. Encourage imaginative and thought-provoking discussions.",
+    "fun": "Create agents with entertaining personalities: witty commenters, meme enthusiasts, devil's advocates, friendly trolls, dramatic personalities, and comedians. They should be humorous, use casual language, make pop culture references, and keep the discussion lively and entertaining. Include some chaos!",
+}
+
 DECISION_PROMPT = """**Context:**
 You are {AGENT_NAME}.
+
+**Current Time:** {CURRENT_TIME} (format: YY/MM/DD HH:MM:SS)
 
 **Language:** You MUST write all content in **{LANGUAGE}**. Do not switch languages.
 
@@ -121,15 +137,35 @@ Decide your next move. Remember to write in {LANGUAGE}.
 1. **DO_NOTHING**: If the conversation is boring or you have nothing to add.
 2. **POST**: Write a reply or a new thread. Use Markdown. You can quote others using `>`. Write in {LANGUAGE}.
 3. **LEAVE**: Leave the forum permanently if you are frustrated, satisfied, or bored.
+{WEB_OPTIONS}
+**Important:** When making factual claims or discussing complex topics, consider using SEARCH or BROWSE to find and cite reliable sources. This adds credibility to your posts.
 
 **Output format (JSON only):**
 {{
-"action": "DO_NOTHING" | "POST" | "LEAVE",
+"action": "DO_NOTHING" | "POST" | "LEAVE"{WEB_ACTIONS},
 "target_post_id": (int or null, ID of the post you are replying to),
 "like_post_id": (int or null, ID of a post you want to like),
-"content": (string in {LANGUAGE}, markdown formatted, null if action is not POST),
+"content": (string in {LANGUAGE}, markdown formatted, null if action is not POST),{WEB_FIELDS}
 "updated_memory": (string in {LANGUAGE}, the new content for your MEMORY.md file)
 }}"""
+
+WEB_OPTIONS_TEXT = """4. **SEARCH**: Search the web for information.
+   - Use this to find facts, statistics, sources, or verify claims.
+   - Recommended when discussing scientific topics, current events, or making factual claims.
+   - You'll receive search results with URLs that you can then BROWSE.
+5. **BROWSE**: Look up a specific web page.
+   - Use this when you have a URL (e.g., from search results) or know a reliable source.
+   - Allowed sources: {ALLOWED_SOURCES}.
+   - Great for citing Wikipedia, research papers, or news articles to support your arguments.
+
+**Note:** You can only perform ONE web action (SEARCH or BROWSE) per turn. After receiving results, you can POST or take another action.
+**Pro tip:** Using SEARCH or BROWSE to cite sources makes your posts more credible and interesting!
+"""
+
+WEB_FIELDS_TEXT = """
+"search_query": (string or null, required if action is SEARCH),
+"browse_url": (string or null, required if action is BROWSE - must be from allowed sources),
+"browse_reason": (string or null, why you want to look this up),"""
 
 class Agent:
     def __init__(self, name_dir):
@@ -180,14 +216,16 @@ class Agent:
         if not read_posts:
             content += "(None)\n\n"
         for p in read_posts:
-            content += f"**ID:** {p.id} | **Author:** {p.agent_name} | **Likes:** {p.likes}\n"
+            post_time = p.created_at.strftime("%y/%m/%d %H:%M:%S") if p.created_at else "Unknown"
+            content += f"**ID:** {p.id} | **Time:** {post_time} | **Author:** {p.agent_name} | **Likes:** {p.likes}\n"
             content += f"{p.content}\n\n---\n"
             
         content += "\n## Recently Added Posts (New)\n\n"
         if not new_posts:
             content += "(No new posts)\n\n"
         for p in new_posts:
-            content += f"**ID:** {p.id} | **Author:** {p.agent_name} | **Likes:** {p.likes}\n"
+            post_time = p.created_at.strftime("%y/%m/%d %H:%M:%S") if p.created_at else "Unknown"
+            content += f"**ID:** {p.id} | **Time:** {post_time} | **Author:** {p.agent_name} | **Likes:** {p.likes}\n"
             content += f"{p.content}\n\n---\n"
             
         self.write_file(self.temp_md_path, content)
@@ -198,17 +236,34 @@ class Agent:
             state["last_read_id"] = max_id
             self.save_state(state)
 
-    def decide(self, language="English"):
+    def decide(self, language="English", allow_web=True):
         agent_md = self.read_file(self.agent_md_path)
         memory_md = self.read_file(self.memory_md_path)
         temp_md = self.read_file(self.temp_md_path)
         
+        # Build web-related prompt parts (SEARCH and BROWSE)
+        if allow_web and settings.ENABLE_WEB_BROWSE:
+            from web_browser import web_browser
+            allowed_sources = web_browser.get_allowed_domains_description()
+            web_options = WEB_OPTIONS_TEXT.format(ALLOWED_SOURCES=allowed_sources)
+            web_actions = ' | "SEARCH" | "BROWSE"'
+            web_fields = WEB_FIELDS_TEXT
+        else:
+            web_options = ""
+            web_actions = ""
+            web_fields = ""
+        
+        current_time = datetime.now().strftime("%y/%m/%d %H:%M:%S")
         prompt = DECISION_PROMPT.format(
             AGENT_NAME=self.name,
             AGENT_MD=agent_md,
             MEMORY_MD=memory_md,
             TEMP_MD=temp_md,
-            LANGUAGE=language
+            LANGUAGE=language,
+            WEB_OPTIONS=web_options,
+            WEB_ACTIONS=web_actions,
+            WEB_FIELDS=web_fields,
+            CURRENT_TIME=current_time,
         )
         
         # Call LLM
@@ -217,9 +272,18 @@ class Agent:
         return response
 
 class Mother:
-    def spawn_agents(self, topic, n=settings.DEFAULT_AGENT_COUNT, retries=3, language="English"):
-        logger.info(f"Spawning {n} agents for topic: {topic} (Language: {language})")
-        prompt = GENESIS_PROMPT.format(TOPIC=topic, N=n, LANGUAGE=language)
+    def spawn_agents(self, topic, n=settings.DEFAULT_AGENT_COUNT, retries=3, language="English", pool_style="professional"):
+        logger.info(f"Spawning {n} agents for topic: {topic} (Language: {language}, Style: {pool_style})")
+        current_time = datetime.now().strftime("%y/%m/%d %H:%M:%S")
+        pool_style_description = POOL_STYLE_DESCRIPTIONS.get(pool_style, POOL_STYLE_DESCRIPTIONS["professional"])
+        prompt = GENESIS_PROMPT.format(
+            TOPIC=topic,
+            N=n,
+            LANGUAGE=language,
+            CURRENT_TIME=current_time,
+            POOL_STYLE=pool_style.upper(),
+            POOL_STYLE_DESCRIPTION=pool_style_description,
+        )
         messages = [{"role": "user", "content": prompt}]
         
         for i in range(retries):
@@ -306,10 +370,132 @@ class Simulation:
              os.makedirs(agents_dir)
              
         if not os.listdir(agents_dir):
-             self.mother.spawn_agents(topic, language=self.language)
+             self.mother.spawn_agents(topic, language=self.language, pool_style=settings.AGENT_POOL_STYLE)
 
     def stop_simulation(self):
         self.running = False
+
+    def _handle_search(self, agent, decision):
+        """
+        Handle SEARCH action: perform web search and get follow-up decision.
+        
+        Returns: (new_decision, new_action) or (None, None) if failed
+        """
+        query = decision.get("search_query", "")
+        logger.info(f"Agent {agent.name} searching: {query}")
+        
+        result = web_browser.search(query)
+        
+        if result["success"]:
+            search_context = web_browser.format_search_results(query, result["results"])
+            logger.info(f"Agent {agent.name} found {len(result['results'])} results")
+        else:
+            search_context = f"\n\n## Search Results for: \"{query}\"\n**Error:** {result['error']}\n"
+            logger.warning(f"Agent {agent.name} search failed: {result['error']}")
+        
+        # Add explicit notice that search was completed
+        search_context += "\n\n---\n**[SYSTEM] You have completed your SEARCH action for this turn. You may now BROWSE one of the URLs above, POST your response, or take another action. You cannot SEARCH again this turn.**\n---\n"
+        
+        # Append search results to TEMP.md
+        current_temp = agent.read_file(agent.temp_md_path)
+        agent.write_file(agent.temp_md_path, current_temp + search_context)
+        
+        # Second decision (with browse still available so they can follow up)
+        new_decision = agent.decide(language=self.language, allow_web=True)
+        if not new_decision:
+            logger.warning(f"Agent {agent.name} failed post-search decision.")
+            return None, None
+        
+        new_action = new_decision.get("action")
+        logger.info(f"Agent {agent.name} post-search decided to {new_action}")
+        
+        # If they want to search again, just treat as DO_NOTHING to prevent loops
+        if new_action == "SEARCH":
+            logger.info(f"Agent {agent.name} wanted to search again, skipping.")
+            new_action = "DO_NOTHING"
+        
+        return new_decision, new_action
+
+    def _handle_browse(self, agent, decision):
+        """
+        Handle BROWSE action: fetch and summarize web page, get follow-up decision.
+        
+        Returns: (new_decision, new_action) or (None, None) if failed
+        """
+        url = decision.get("browse_url")
+        reason = decision.get("browse_reason", "general research")
+        
+        logger.info(f"Agent {agent.name} browsing: {url}")
+        
+        # Fetch the page
+        result = web_browser.fetch(url)
+        
+        if result["success"]:
+            # Summarize the content
+            summary = web_browser.summarize(
+                result["content"], url, reason, llm_client
+            )
+            title = result.get("title", "")
+            browse_context = f"\n\n## Web Browse Result\n**URL:** {url}\n**Title:** {title}\n**Summary:**\n{summary}\n"
+            logger.info(f"Agent {agent.name} successfully browsed {url}")
+        else:
+            browse_context = f"\n\n## Web Browse Result\n**URL:** {url}\n**Error:** {result['error']}\n"
+            logger.warning(f"Agent {agent.name} failed to browse {url}: {result['error']}")
+        
+        # Add explicit notice that browse was completed
+        browse_context += "\n\n---\n**[SYSTEM] You have completed your web action for this turn. You should now POST your response using the information above, or take another non-web action. You cannot SEARCH or BROWSE again this turn.**\n---\n"
+        
+        # Append browse result to TEMP.md
+        current_temp = agent.read_file(agent.temp_md_path)
+        agent.write_file(agent.temp_md_path, current_temp + browse_context)
+        
+        # Second decision (without web options to prevent infinite loops)
+        new_decision = agent.decide(language=self.language, allow_web=False)
+        if not new_decision:
+            logger.warning(f"Agent {agent.name} failed post-browse decision.")
+            return None, None
+        
+        new_action = new_decision.get("action")
+        logger.info(f"Agent {agent.name} post-browse decided to {new_action}")
+        
+        return new_decision, new_action
+
+    def _handle_post(self, agent, decision, db):
+        """Handle POST action: create a new post in the forum."""
+        # Ensure thread exists
+        thread = db.query(Thread).first()
+        if not thread:
+            thread = Thread(title=self.topic)
+            db.add(thread)
+            db.commit()
+        
+        content = decision.get("content")
+        if content:
+            target_id = decision.get("target_post_id") 
+            # If target_id is invalid/not found, treat as root post
+            if target_id and not db.query(Post).filter(Post.id == target_id).first():
+                target_id = None
+
+            post = Post(
+                thread_id=thread.id,
+                agent_name=agent.name,
+                content=content,
+                parent_id=target_id
+            )
+            db.add(post)
+            db.commit()
+
+    def _handle_leave(self, agent):
+        """Handle LEAVE action: move agent to inactive directory."""
+        src = os.path.join("agents", "active", agent.name)
+        dst = os.path.join("agents", "inactive", agent.name)
+        # Ensure inactive dir for this agent doesn't exist or rename
+        if os.path.exists(dst):
+            dst = dst + f"_{int(time.time())}"
+        
+        if os.path.exists(src):
+            shutil.move(src, dst)
+            logger.info(f"Agent {agent.name} left the forum.")
 
     def step(self):
         if not self.running:
@@ -333,8 +519,8 @@ class Simulation:
             # 2. Perceive
             agent.perceive(db)
             
-            # 3. Decide
-            decision = agent.decide(language=self.language)
+            # 3. Decide (with web options if enabled)
+            decision = agent.decide(language=self.language, allow_web=True)
             if not decision:
                 logger.warning(f"Agent {agent.name} failed to decide (JSON parse error or API fail).")
                 return
@@ -342,45 +528,28 @@ class Simulation:
             action = decision.get("action")
             logger.info(f"Agent {agent.name} decided to {action}")
             
-            # 4. Execute
+            # 4. Handle web actions (SEARCH, BROWSE)
+            if action == "SEARCH" and settings.ENABLE_WEB_BROWSE:
+                decision, action = self._handle_search(agent, decision)
+                if decision is None:
+                    return
+            
+            if action == "BROWSE" and settings.ENABLE_WEB_BROWSE:
+                decision, action = self._handle_browse(agent, decision)
+                if decision is None:
+                    return
+            
+            if action in ("BROWSE", "SEARCH") and not settings.ENABLE_WEB_BROWSE:
+                logger.warning(f"Agent {agent.name} tried to {action} but web browsing is disabled.")
+                action = "DO_NOTHING"
+            
+            # 5. Execute final action
             if action == "POST":
-                # Ensure thread exists
-                thread = db.query(Thread).first()
-                if not thread:
-                    thread = Thread(title=self.topic)
-                    db.add(thread)
-                    db.commit()
-                
-                content = decision.get("content")
-                if content:
-                    target_id = decision.get("target_post_id") 
-                    # If target_id is invalid/not found, we can treat as root post or just ignore parent
-                    if target_id and not db.query(Post).filter(Post.id == target_id).first():
-                        target_id = None
-
-                    post = Post(
-                        thread_id=thread.id,
-                        agent_name=agent.name,
-                        content=content,
-                        parent_id=target_id
-                    )
-                    db.add(post)
-                    db.commit()
-            
+                self._handle_post(agent, decision, db)
             elif action == "LEAVE":
-                # Move to inactive
-                src = os.path.join("agents", "active", agent.name)
-                dst = os.path.join("agents", "inactive", agent.name)
-                # Ensure inactive dir for this agent doesn't exist or rename
-                if os.path.exists(dst):
-                     dst = dst + f"_{int(time.time())}"
-                
-                if os.path.exists(src):
-                    shutil.move(src, dst)
-                    logger.info(f"Agent {agent.name} left the forum.")
-                    # Write postmortem if needed
+                self._handle_leave(agent)
             
-            # Like?
+            # 6. Handle likes
             like_id = decision.get("like_post_id")
             if like_id:
                 post = db.query(Post).filter(Post.id == like_id).first()
@@ -388,7 +557,7 @@ class Simulation:
                     post.likes += 1
                     db.commit()
             
-            # Update Memory
+            # 7. Update Memory
             new_memory = decision.get("updated_memory")
             if new_memory:
                 agent.write_file(agent.memory_md_path, new_memory)

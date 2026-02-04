@@ -26,6 +26,16 @@
             </div>
 
             <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Agent Pool Style</label>
+                <select name="agent_pool_style" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                    <option value="professional" {% if settings.AGENT_POOL_STYLE == 'professional' %}selected{% endif %}>Professional - Experts, analysts, researchers</option>
+                    <option value="creative" {% if settings.AGENT_POOL_STYLE == 'creative' %}selected{% endif %}>Creative - Writers, philosophers, visionaries</option>
+                    <option value="fun" {% if settings.AGENT_POOL_STYLE == 'fun' %}selected{% endif %}>Fun - Witty, humorous, chaotic personalities</option>
+                </select>
+                <p class="text-xs text-gray-500 mt-1">Affects how MOTHER creates agents when starting a new topic.</p>
+            </div>
+
+            <div class="mb-4">
                 <label class="block text-gray-700 text-sm font-bold mb-2">Max Loops</label>
                 <input type="number" name="max_loops" value="{{ settings.MAX_LOOPS }}" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
             </div>
@@ -33,6 +43,14 @@
             <div class="mb-4">
                 <label class="block text-gray-700 text-sm font-bold mb-2">Loop Delay (seconds)</label>
                 <input type="number" step="0.1" name="loop_delay" value="{{ settings.LOOP_DELAY }}" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700">
+            </div>
+
+            <div class="mb-4">
+                <label class="flex items-center">
+                    <input type="checkbox" name="enable_web_browse" value="true" {% if settings.ENABLE_WEB_BROWSE %}checked{% endif %} class="mr-2">
+                    <span class="text-gray-700 text-sm font-bold">Enable Web Browsing</span>
+                </label>
+                <p class="text-xs text-gray-500 mt-1">Allow agents to fetch pages from Wikipedia, arXiv, PubMed, and other trusted sources.</p>
             </div>
 
             <div id="settings-response" class="mb-4"></div>

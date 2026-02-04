@@ -7,6 +7,10 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js"></script>
+    <!-- KaTeX for math rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         body { font-family: 'Inter', sans-serif; }
@@ -161,6 +165,27 @@
     
     <script>
         const md = window.markdownit();
+        
+        // Render math equations using KaTeX
+        function renderMath(element) {
+            if (typeof renderMathInElement !== 'undefined') {
+                renderMathInElement(element, {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false},
+                        {left: '\\[', right: '\\]', display: true},
+                        {left: '\\(', right: '\\)', display: false}
+                    ],
+                    throwOnError: false,
+                    errorColor: '#cc0000'
+                });
+            }
+        }
+        
+        // Render markdown and math for an element
+        function renderContent(html) {
+            return md.render(html);
+        }
         
         // State
         const state = {
@@ -342,6 +367,9 @@
             
             container.innerHTML = tree.map(node => createPostNode(node.post, node.children, false, 0)).join('');
             
+            // Render math equations
+            renderMath(container);
+            
             // Update post count
             document.getElementById('post-count').textContent = `${posts.length} posts`;
         }
@@ -394,10 +422,16 @@
                 const postDepth = parseInt(repliesContainer.dataset.depth || '0') + 1;
                 const postHtml = createPostNode(post, [], true, postDepth);
                 repliesContainer.insertAdjacentHTML('beforeend', postHtml);
+                // Render math in the new post
+                const newPostEl = document.getElementById(`post-${post.id}`);
+                if (newPostEl) renderMath(newPostEl);
             } else {
                 // It's a root post
                 const postHtml = createPostNode(post, [], true, 0);
                 container.insertAdjacentHTML('beforeend', postHtml);
+                // Render math in the new post
+                const newPostEl = document.getElementById(`post-${post.id}`);
+                if (newPostEl) renderMath(newPostEl);
             }
             
             return true;
@@ -479,6 +513,8 @@
                         el.classList.remove('md-content');
                         el.classList.add('markdown-body');
                     });
+                    // Render math equations
+                    renderMath(evt.detail.target);
                 }
             });
         });

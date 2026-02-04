@@ -59,11 +59,47 @@ class LLMClient:
         
         if clean_content.endswith("```"):
             clean_content = clean_content[:-3]
+        
+        clean_content = clean_content.strip()
+        
+        # Try to extract JSON object/array if there's extra text
+        # Find the first { or [ and last } or ]
+        start_obj = clean_content.find('{')
+        start_arr = clean_content.find('[')
+        
+        if start_obj == -1 and start_arr == -1:
+            logger.error(f"No JSON object or array found in response: {content[:500]}")
+            return None
+        
+        if start_arr == -1 or (start_obj != -1 and start_obj < start_arr):
+            # Object
+            start = start_obj
+            end = clean_content.rfind('}')
+            if end == -1:
+                logger.error(f"No closing brace found in response: {content[:500]}")
+                return None
+            clean_content = clean_content[start:end+1]
+        else:
+            # Array
+            start = start_arr
+            end = clean_content.rfind(']')
+            if end == -1:
+                logger.error(f"No closing bracket found in response: {content[:500]}")
+                return None
+            clean_content = clean_content[start:end+1]
             
         try:
-            return json.loads(clean_content.strip())
-        except json.JSONDecodeError:
-            logger.error(f"Failed to parse JSON response: {content}")
-            return None
+            return json.loads(clean_content)
+        except json.JSONDecodeError as e:
+            # Try to fix common issues
+            try:
+                # Sometimes LLMs output control characters that break JSON
+                import re
+                # Remove control characters except \n, \r, \t
+                fixed_content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', clean_content)
+                return json.loads(fixed_content)
+            except json.JSONDecodeError:
+                logger.error(f"Failed to parse JSON response: {content[:1000]}... Error: {e}")
+                return None
 
 llm_client = LLMClient()

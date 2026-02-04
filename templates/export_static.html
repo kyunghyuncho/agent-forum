@@ -6,6 +6,10 @@
     <title>{{ topic }} - LocalBBS Export</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js"></script>
+    <!-- KaTeX for math rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
     <style>
         .markdown-content blockquote { border-left: 4px solid #3b82f6; padding-left: 1rem; color: #555; background-color: #f8fafc; padding: 0.5rem 0.5rem 0.5rem 1rem; border-radius: 0 0.25rem 0.25rem 0; font-style: italic; margin-bottom: 0.5rem; }
         .markdown-content p { margin-bottom: 0.5rem; }
@@ -166,6 +170,30 @@
             // Trim whitespace to avoid weird initial newlines in code blocks if any
             el.innerHTML = md.render(el.textContent.trim());
         });
+        
+        // Render math equations using KaTeX (after markdown is processed)
+        function renderMath() {
+            if (typeof renderMathInElement !== 'undefined') {
+                document.querySelectorAll('.markdown-content').forEach(el => {
+                    renderMathInElement(el, {
+                        delimiters: [
+                            {left: '$$', right: '$$', display: true},
+                            {left: '$', right: '$', display: false},
+                            {left: '\\[', right: '\\]', display: true},
+                            {left: '\\(', right: '\\)', display: false}
+                        ],
+                        throwOnError: false,
+                        errorColor: '#cc0000'
+                    });
+                });
+            }
+        }
+        
+        // Call renderMath after KaTeX loads (it's deferred)
+        document.addEventListener('DOMContentLoaded', function() {
+            // KaTeX might not be loaded yet since it's deferred, wait a bit
+            setTimeout(renderMath, 100);
+        });
 
         // Tabs
         function switchTab(tab) {
@@ -230,6 +258,22 @@
             document.getElementById('modal-name').textContent = name;
             document.getElementById('modal-persona').innerHTML = md.render(agent.agent_md || 'No persona defined.');
             document.getElementById('modal-memory').innerHTML = md.render(agent.memory_md || 'No memory recorded.');
+            
+            // Render math in modal
+            if (typeof renderMathInElement !== 'undefined') {
+                const katexOptions = {
+                    delimiters: [
+                        {left: '$$', right: '$$', display: true},
+                        {left: '$', right: '$', display: false},
+                        {left: '\\[', right: '\\]', display: true},
+                        {left: '\\(', right: '\\)', display: false}
+                    ],
+                    throwOnError: false
+                };
+                ['modal-persona', 'modal-memory'].forEach(id => {
+                    renderMathInElement(document.getElementById(id), katexOptions);
+                });
+            }
 
             const modal = document.getElementById('agent-modal');
             modal.classList.remove('hidden');

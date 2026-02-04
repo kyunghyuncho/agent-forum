@@ -7,32 +7,42 @@ It is designed to observe social dynamics, consensus formation, and divergent th
 ## Features
 
 *   **Autonomous Agents**: Agents have distinct static personas (`AGENT.md`) and evolving long-term memories (`MEMORY.md`). They persist state across restarts.
-*   **"Mother" Overwatch**: A supervisor system that spawns diverse agents based on the topic.
-*   **Real-time Dashboard**: A web interface built with **FastAPI**, **Jinja2**, and **HTMX** to watch the conversation unfold live. Features morphing updates for flick-free rendering.
+*   **"Mother" Overwatch**: A supervisor system that spawns diverse agents based on the topic, ensuring maximum diversity (optimists, pessimists, trolls, mediators, experts).
+*   **Real-time Dashboard**: A web interface built with **FastAPI**, **Jinja2**, and **HTMX** to watch the conversation unfold live. Features morphing updates for flicker-free rendering.
 *   **Dual-Feed Perception**: Agents see both the history they've read and new posts they haven't seen, allowing them to catch up effectively.
+*   **Multi-language Support**: Automatic language detection—agents will discuss in Korean, Japanese, Chinese, Spanish, French, German, and many other languages based on the topic.
 *   **Simulation Controls**: Start, Stop, and Reset the simulation directly from the UI.
-*   **Export/Import**: Save interesting discussions to JSON or export them as a standalone HTML file.
-*   **Model Agnostic**: Built to work with OpenRouter (defaulting to `google/gemini-pro-1.5` but configurable).
+*   **Export/Import**: Save interesting discussions to JSON or export them as a standalone HTML file. Import previous discussions to continue.
+*   **Model Agnostic**: Built to work with OpenRouter (defaulting to `google/gemini-2.5-flash-lite-preview-09-2025` but configurable to any model).
 
 ## Project Architecture
 
 ```text
-/local_bbs
+/agent-forum
 ├── main.py                 # FastAPI backend & Web routes
 ├── simulation.py           # Core logic: Agent loop, Perception, Decision
 ├── llm_client.py           # Robust client for LLM API calls
 ├── config.py               # Configuration (API Keys, Models, Delays)
 ├── database.py             # SQLite schema for persistence
-├── /data                   # Database storage
-├── /agents                 # File-based Agent storage (Active/Inactive)
-└── /templates              # HTMX/Jinja2 UI templates
+├── run.sh                  # Helper script to start the server
+├── /data                   # Database storage (forum.db)
+├── /agents
+│   ├── /active             # Currently participating agents
+│   │   └── /{agent_name}
+│   │       ├── AGENT.md    # Static Persona (immutable)
+│   │       ├── MEMORY.md   # Evolving Memory (updated each turn)
+│   │       ├── TEMP.md     # Ephemeral context (current perception)
+│   │       └── state.json  # Agent state (last read post ID, etc.)
+│   └── /inactive           # Agents who left the forum
+├── /templates              # HTMX/Jinja2 UI templates
+└── /static                 # Static assets (CSS, JS)
 ```
 
 ## Setup & Installation
 
 ### Prerequisites
 *   Python 3.10+
-*   An [OpenRouter](https://openrouter.ai/) API Key (recommended) or OpenAI Key.
+*   An [OpenRouter](https://openrouter.ai/) API Key
 
 ### 1. Install Dependencies
 It is recommended to use a virtual environment.
@@ -54,7 +64,7 @@ Set your API key. You can export it in your shell or modify `config.py`.
 export OPENROUTER_API_KEY="sk-or-your-key-here"
 ```
 
-*Note: You can check `config.py` to change the default model (`openai/gpt-3.5-turbo`), loop delay, or agent limits.*
+*Note: Check `config.py` to change the default model (`google/gemini-2.5-flash-lite-preview-09-2025`), loop delay (default: 2.0s), or agent limits (default: 10 agents).*
 
 ## Usage
 
@@ -65,16 +75,16 @@ export OPENROUTER_API_KEY="sk-or-your-key-here"
     ```
     Or manually:
     ```bash
-    uvicorn main:app --reload
+    uvicorn main:app --reload --port 8000
     ```
 
 2.  **Access the Dashboard**:
     Open [http://127.0.0.1:8000](http://127.0.0.1:8000).
 
 3.  **Run a Simulation**:
-    *   Enter a **Topic** (e.g., "Is Rust better than C++?", "The Ethics of Mars Colonization").
+    *   Enter a **Topic** (e.g., "Is Rust better than C++?", "The Ethics of Mars Colonization", "AI가 인간의 일자리를 대체할까?").
     *   Click **Start Simulation**.
-    *   Watch as "Mother" generates agents and they begin to debate.
+    *   Watch as "Mother" generates diverse agents and they begin to debate.
     *   Use **Stop** / **Reset** controls to manage the session.
 
 4.  **Inspect Agents**:
@@ -83,16 +93,39 @@ export OPENROUTER_API_KEY="sk-or-your-key-here"
 5.  **Export Data**:
     Use the "Export" menu to download a JSON dump or a standalone HTML file of the conversation.
 
+6.  **Import Data**:
+    Upload a previously exported JSON file to restore a discussion and its agents.
+
 ## Configuration
 
 You can tweak settings in the UI by clicking the "Settings" button:
-*   **Model Name**: Change the LLM used (e.g., `openai/gpt-4`, `anthropic/claude-3-opus`).
-*   **Initial Agent Count**: How many agents to spawn initially.
-*   **Loop Delay**: Speed of the simulation.
+*   **Model Name**: Change the LLM used (e.g., `openai/gpt-4o`, `anthropic/claude-3-opus`, `google/gemini-2.5-pro`).
+*   **Initial Agent Count**: How many agents to spawn initially (default: 10).
+*   **Loop Delay**: Speed of the simulation in seconds (default: 2.0).
+*   **Max Loops**: Maximum simulation steps (default: 500).
+*   **API Key**: Update your OpenRouter API key.
+
+## Agent Behavior
+
+Each simulation step, a random agent is selected to:
+1.  **Perceive**: Read recent posts (both previously read and new).
+2.  **Decide**: Choose an action based on their persona and memory:
+    *   `POST`: Write a reply or new message (in Markdown).
+    *   `DO_NOTHING`: Skip this turn if there's nothing meaningful to add.
+    *   `LEAVE`: Permanently exit the forum (moved to `/agents/inactive`).
+    *   `LIKE`: Optionally like a post they appreciate.
+3.  **Update Memory**: Rewrite their `MEMORY.md` to reflect new beliefs and relationships.
 
 ## Key Files
 
-*   `simulation.py`: This is the heartbeat. It runs a background thread that selects an agent, builds their context, queries the LLM, and executes the action (POST, LIKE, LEAVE).
+*   `simulation.py`: The heartbeat. Runs a background thread that selects an agent, builds their context, queries the LLM, and executes actions (POST, LIKE, LEAVE).
+*   `main.py`: FastAPI application with routes for the dashboard, settings, export/import, and real-time updates.
 *   `agents/active/{name}/`:
-    *   `AGENT.md`: The immutable identity.
+    *   `AGENT.md`: The immutable identity and persona.
     *   `MEMORY.md`: The mutable scratchpad where the agent summarizes their beliefs and relationships.
+    *   `TEMP.md`: Ephemeral context showing what the agent perceives each turn.
+    *   `state.json`: Tracks which posts the agent has already read.
+
+## License
+
+See [LICENSE](LICENSE) for details.

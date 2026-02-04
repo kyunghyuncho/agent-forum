@@ -6,6 +6,8 @@ content from a curated allowlist of trusted, factual sources.
 """
 
 import logging
+import socket
+import ipaddress
 from urllib.parse import urlparse, quote_plus, parse_qs
 
 import httpx
@@ -88,6 +90,50 @@ class WebBrowser:
         except Exception as e:
             return False, f"Invalid URL: {str(e)}"
 
+    def _is_safe_ip(self, hostname: str) -> tuple[bool, str]:
+        """
+        Check if a hostname resolves to a safe (non-private) IP address.
+        Prevents SSRF attacks targeting internal networks.
+        
+        Returns: (is_safe: bool, error_message: str or None)
+        """
+        try:
+            # Resolve hostname to IP addresses
+            addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC)
+            
+            for family, _, _, _, sockaddr in addr_info:
+                ip_str = sockaddr[0]
+                
+                try:
+                    ip = ipaddress.ip_address(ip_str)
+                except ValueError:
+                    continue
+                
+                # Block private, loopback, link-local, and reserved addresses
+                if ip.is_private:
+                    return False, f"Blocked: '{hostname}' resolves to private IP {ip_str}"
+                if ip.is_loopback:
+                    return False, f"Blocked: '{hostname}' resolves to loopback IP {ip_str}"
+                if ip.is_link_local:
+                    return False, f"Blocked: '{hostname}' resolves to link-local IP {ip_str}"
+                if ip.is_reserved:
+                    return False, f"Blocked: '{hostname}' resolves to reserved IP {ip_str}"
+                if ip.is_multicast:
+                    return False, f"Blocked: '{hostname}' resolves to multicast IP {ip_str}"
+                
+                # Additional check for IPv4 mapped IPv6 addresses
+                if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+                    mapped_ip = ip.ipv4_mapped
+                    if mapped_ip.is_private or mapped_ip.is_loopback or mapped_ip.is_link_local:
+                        return False, f"Blocked: '{hostname}' resolves to unsafe IPv4-mapped address {ip_str}"
+            
+            return True, None
+            
+        except socket.gaierror as e:
+            return False, f"DNS resolution failed for '{hostname}': {str(e)}"
+        except Exception as e:
+            return False, f"IP validation failed for '{hostname}': {str(e)}"
+
     def fetch(self, url: str) -> dict:
         """
         Fetch a URL and extract main text content.
@@ -119,6 +165,17 @@ class WebBrowser:
                 "title": "",
                 "error": error,
             }
+        
+        # SSRF protection: verify hostname doesn't resolve to internal IPs
+        parsed = urlparse(url)
+        is_safe, error = self._is_safe_ip(parsed.netloc.split(":")[0])
+        if not is_safe:
+            return {
+                "success": False,
+                "content": "",
+                "title": "",
+                "error": error,
+            }
 
         try:
             with httpx.Client(
@@ -144,6 +201,17 @@ class WebBrowser:
                         "content": "",
                         "title": "",
                         "error": f"Redirected to non-allowed domain: {error}",
+                    }
+                
+                # SSRF protection: also check final URL after redirects
+                final_parsed = urlparse(final_url)
+                is_safe, error = self._is_safe_ip(final_parsed.netloc.split(":")[0])
+                if not is_safe:
+                    return {
+                        "success": False,
+                        "content": "",
+                        "title": "",
+                        "error": f"Redirected to unsafe IP: {error}",
                     }
                 
                 response.raise_for_status()
@@ -188,8 +256,8 @@ class WebBrowser:
                 text = "\n".join(lines)
 
                 # Truncate if too long
-                if len(text) > 10000:
-                    text = text[:10000] + "\n\n[... content truncated ...]"
+                if len(text) > self.max_content_length:
+                    text = text[:self.max_content_length] + "\n\n[... content truncated ...]"
 
                 if not text:
                     return {

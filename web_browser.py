@@ -479,17 +479,27 @@ If the content seems irrelevant to the stated reason, mention that briefly."""
             }
 
     def format_search_results(self, query: str, results: list) -> str:
-        """Format search results as markdown for TEMP.md."""
+        """Format search results as markdown for TEMP.md, indicating which URLs can be browsed."""
         if not results:
             return f"\n\n## Search Results for: \"{query}\"\nNo results found.\n"
         
         output = f"\n\n## Search Results for: \"{query}\"\n\n"
+        browsable_count = 0
         for i, r in enumerate(results, 1):
-            output += f"{i}. **{r['title']}**\n"
+            url = r['url']
+            is_allowed, _ = self.is_allowed(url)
+            status = "✓ BROWSABLE" if is_allowed else "✗ not browsable"
+            if is_allowed:
+                browsable_count += 1
+            
+            output += f"{i}. **{r['title']}** [{status}]\n"
             output += f"   {r['snippet']}\n"
-            output += f"   URL: {r['url']}\n\n"
+            output += f"   URL: {url}\n\n"
         
-        output += "_You can BROWSE any of these URLs for more details, or use this information directly._\n"
+        if browsable_count > 0:
+            output += f"_You can BROWSE the URLs marked ✓ BROWSABLE ({browsable_count} available). Allowed sources: Wikipedia, arXiv, PubMed, .gov, .edu sites, and major news outlets._\n"
+        else:
+            output += "_None of these URLs are from allowed sources for browsing. You can still use the snippets above in your response._\n"
         return output
 
 

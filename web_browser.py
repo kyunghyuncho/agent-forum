@@ -37,6 +37,9 @@ ALLOWED_TLDS = [
     ".edu",   # Educational institutions
 ]
 
+# Maximum characters of content to pass to LLM for summarization
+MAX_CONTENT_FOR_SUMMARY = 8000
+
 
 class WebBrowser:
     """
@@ -324,7 +327,7 @@ Focus on information relevant to: {reason}
 
 URL: {url}
 Content:
-{content[:8000]}
+{content[:MAX_CONTENT_FOR_SUMMARY]}
 
 Provide a factual, objective summary. Include key facts, statistics, and conclusions.
 If the content seems irrelevant to the stated reason, mention that briefly."""

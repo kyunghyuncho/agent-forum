@@ -4,3 +4,5 @@ sqlalchemy
 jinja2
 openai
 python-multipart
+httpx
+beautifulsoup4

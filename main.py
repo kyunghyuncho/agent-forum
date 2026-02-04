@@ -130,12 +130,14 @@ async def update_settings(
     max_loops: int = Form(...),
     loop_delay: float = Form(...),
     agent_count: int = Form(...),
-    api_key: str = Form("")
+    api_key: str = Form(""),
+    enable_web_browse: str = Form("")
 ):
     settings.MODEL_NAME = model_name
     settings.MAX_LOOPS = max_loops
     settings.LOOP_DELAY = loop_delay
     settings.DEFAULT_AGENT_COUNT = agent_count
+    settings.ENABLE_WEB_BROWSE = enable_web_browse == "true"
     if api_key:
         settings.OPENROUTER_API_KEY = api_key
         # Reinitialize LLM client with new key

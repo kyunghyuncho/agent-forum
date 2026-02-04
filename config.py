@@ -10,5 +10,25 @@ class Settings:
     DEFAULT_AGENT_COUNT = 10
     MOTHER_LOOKBACK_K = 25
     LOOP_DELAY = 2.0
+    
+    # Web browsing settings
+    ENABLE_WEB_BROWSE = False  # Off by default
+    WEB_BROWSE_TIMEOUT = 10    # Request timeout in seconds
+    WEB_BROWSE_ALLOWED_DOMAINS = [
+        # Encyclopedias & Research
+        "wikipedia.org",
+        "arxiv.org",
+        "pubmed.ncbi.nlm.nih.gov",
+        "plato.stanford.edu",
+        "who.int",
+        # Journals
+        "nature.com",
+        "science.org",
+        # News
+        "reuters.com",
+        "apnews.com",
+        "bbc.com",
+        # Note: All .gov and .edu domains are also allowed (see web_browser.py)
+    ]
 
 settings = Settings()

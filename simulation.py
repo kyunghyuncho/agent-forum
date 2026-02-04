@@ -99,13 +99,22 @@ GENESIS_PROMPT = """You are the Simulation Controller (MOTHER). The user has pro
 
 **Language:** The topic is in **{LANGUAGE}**. All agents MUST communicate in {LANGUAGE} throughout the discussion. Their personas, writing style, and all forum posts should be in {LANGUAGE}.
 
+**Pool Style:** {POOL_STYLE}
+{POOL_STYLE_DESCRIPTION}
+
 Create **{N}** distinct agents to discuss this topic.
-**Constraint:** Ensure maximum diversity. Create a mix of optimists, pessimists, trolls, mediators, and experts. All agents must write in {LANGUAGE}.
+**Constraint:** Ensure maximum diversity within the chosen style. All agents must write in {LANGUAGE}.
 
 Output a JSON list where each object contains:
 `name`: string (can be a {LANGUAGE} name if appropriate)
 `filename`: string (snake_case, ASCII only)
 `agent_md_content`: string (The full text for AGENT.md, written in {LANGUAGE})"""
+
+POOL_STYLE_DESCRIPTIONS = {
+    "professional": "Create agents that are serious professionals: industry experts, analysts, researchers, consultants, and academics. They should be formal, cite sources, use data-driven arguments, and maintain professional discourse. Include diverse viewpoints but keep discussions substantive and respectful.",
+    "creative": "Create agents with creative and artistic personalities: writers, philosophers, visionaries, contrarians, and dreamers. They can use metaphors, tell stories, challenge assumptions, and explore unconventional ideas. Encourage imaginative and thought-provoking discussions.",
+    "fun": "Create agents with entertaining personalities: witty commenters, meme enthusiasts, devil's advocates, friendly trolls, dramatic personalities, and comedians. They should be humorous, use casual language, make pop culture references, and keep the discussion lively and entertaining. Include some chaos!",
+}
 
 DECISION_PROMPT = """**Context:**
 You are {AGENT_NAME}.
@@ -263,10 +272,18 @@ class Agent:
         return response
 
 class Mother:
-    def spawn_agents(self, topic, n=settings.DEFAULT_AGENT_COUNT, retries=3, language="English"):
-        logger.info(f"Spawning {n} agents for topic: {topic} (Language: {language})")
+    def spawn_agents(self, topic, n=settings.DEFAULT_AGENT_COUNT, retries=3, language="English", pool_style="professional"):
+        logger.info(f"Spawning {n} agents for topic: {topic} (Language: {language}, Style: {pool_style})")
         current_time = datetime.now().strftime("%y/%m/%d %H:%M:%S")
-        prompt = GENESIS_PROMPT.format(TOPIC=topic, N=n, LANGUAGE=language, CURRENT_TIME=current_time)
+        pool_style_description = POOL_STYLE_DESCRIPTIONS.get(pool_style, POOL_STYLE_DESCRIPTIONS["professional"])
+        prompt = GENESIS_PROMPT.format(
+            TOPIC=topic,
+            N=n,
+            LANGUAGE=language,
+            CURRENT_TIME=current_time,
+            POOL_STYLE=pool_style.upper(),
+            POOL_STYLE_DESCRIPTION=pool_style_description,
+        )
         messages = [{"role": "user", "content": prompt}]
         
         for i in range(retries):
@@ -353,7 +370,7 @@ class Simulation:
              os.makedirs(agents_dir)
              
         if not os.listdir(agents_dir):
-             self.mother.spawn_agents(topic, language=self.language)
+             self.mother.spawn_agents(topic, language=self.language, pool_style=settings.AGENT_POOL_STYLE)
 
     def stop_simulation(self):
         self.running = False

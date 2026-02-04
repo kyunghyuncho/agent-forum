@@ -130,6 +130,7 @@ async def update_settings(
     max_loops: int = Form(...),
     loop_delay: float = Form(...),
     agent_count: int = Form(...),
+    agent_pool_style: str = Form("professional"),
     api_key: str = Form(""),
     enable_web_browse: str = Form("")
 ):
@@ -137,6 +138,7 @@ async def update_settings(
     settings.MAX_LOOPS = max_loops
     settings.LOOP_DELAY = loop_delay
     settings.DEFAULT_AGENT_COUNT = agent_count
+    settings.AGENT_POOL_STYLE = agent_pool_style
     settings.ENABLE_WEB_BROWSE = enable_web_browse == "true"
     if api_key:
         settings.OPENROUTER_API_KEY = api_key

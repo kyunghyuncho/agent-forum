@@ -11,6 +11,9 @@ class Settings:
     MOTHER_LOOKBACK_K = 25
     LOOP_DELAY = 2.0
     
+    # Agent pool style: "professional", "creative", or "fun"
+    AGENT_POOL_STYLE = "professional"
+    
     # Web browsing settings
     ENABLE_WEB_BROWSE = True  # On by default
     WEB_BROWSE_TIMEOUT = 10    # Request timeout in seconds

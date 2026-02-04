@@ -9,6 +9,10 @@ logger = logging.getLogger(__name__)
 
 class LLMClient:
     def __init__(self):
+        self.reinitialize()
+
+    def reinitialize(self):
+        """Reinitialize the client with current settings (useful when API key changes)."""
         self.client = openai.OpenAI(
             base_url=settings.OPENROUTER_BASE_URL,
             api_key=settings.OPENROUTER_API_KEY

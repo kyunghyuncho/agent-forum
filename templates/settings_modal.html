@@ -9,6 +9,12 @@
         
         <form hx-post="/settings" hx-target="#settings-response">
             <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">OpenRouter API Key</label>
+                <input type="password" name="api_key" value="{{ settings.OPENROUTER_API_KEY }}" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="sk-or-...">
+                <p class="text-xs text-gray-500 mt-1">Get your key from <a href="https://openrouter.ai/keys" target="_blank" class="text-blue-500 hover:underline">openrouter.ai/keys</a></p>
+            </div>
+
+            <div class="mb-4">
                 <label class="block text-gray-700 text-sm font-bold mb-2">Model Name</label>
                 <input type="text" name="model_name" value="{{ settings.MODEL_NAME }}" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
                 <p class="text-xs text-gray-500 mt-1">e.g. openai/gpt-3.5-turbo, anthropic/claude-3-haiku</p>

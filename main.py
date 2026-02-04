@@ -129,12 +129,18 @@ async def update_settings(
     model_name: str = Form(...),
     max_loops: int = Form(...),
     loop_delay: float = Form(...),
-    agent_count: int = Form(...)
+    agent_count: int = Form(...),
+    api_key: str = Form("")
 ):
     settings.MODEL_NAME = model_name
     settings.MAX_LOOPS = max_loops
     settings.LOOP_DELAY = loop_delay
     settings.DEFAULT_AGENT_COUNT = agent_count
+    if api_key:
+        settings.OPENROUTER_API_KEY = api_key
+        # Reinitialize LLM client with new key
+        from llm_client import llm_client
+        llm_client.reinitialize()
     return HTMLResponse('<div class="p-4 text-green-600 bg-green-100 rounded">Settings Saved!</div>')
 
 # --- Export/Import ---

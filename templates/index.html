@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LocalBBS Simulation</title>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-    <script src="https://unpkg.com/idiomorph@0.3.0/dist/idiomorph-ext.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -116,9 +115,8 @@
             <div id="thread-container" 
                  class="flex-1 overflow-y-auto p-6 space-y-6 bg-white"
                  hx-get="/posts" 
-                 hx-ext="idiomorph"
                  hx-trigger="load, every 2s" 
-                 hx-swap="morph:innerHTML">
+                 hx-swap="innerHTML show:none">
                  <!-- Posts go here -->
             </div>
         </main>
@@ -156,13 +154,28 @@
     
     <script>
         const md = window.markdownit();
-        let wasNearBottom = true;
-        let lastPostCount = 0;
         
-        // Check if user is near the bottom (within 100px)
-        function isNearBottom(el) {
-            return el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-        }
+        // Scroll state - stored outside events to persist
+        const scrollState = {
+            savedScrollTop: 0,
+            wasNearBottom: false,
+            lastPostCount: 0,
+            isSwapping: false  // Flag to pause tracking during swap
+        };
+        
+        // Track scroll position on user scroll events (more reliable than interval)
+        document.addEventListener('DOMContentLoaded', function() {
+            const container = document.getElementById('thread-container');
+            if (container) {
+                container.addEventListener('scroll', function() {
+                    // Only save when not in the middle of a swap
+                    if (!scrollState.isSwapping) {
+                        scrollState.savedScrollTop = container.scrollTop;
+                        scrollState.wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+                    }
+                });
+            }
+        });
         
         function getCollapsedPosts() {
             try {
@@ -205,16 +218,20 @@
             });
         }
 
-        // Before swap: record scroll position and state
+        // Before swap: lock scroll tracking and save current position
         document.body.addEventListener('htmx:beforeSwap', function(evt) {
             if (evt.detail.target.id === 'thread-container') {
                 const container = evt.detail.target;
-                wasNearBottom = isNearBottom(container);
-                lastPostCount = container.querySelectorAll('[id^="post-"]').length;
+                // Lock tracking
+                scrollState.isSwapping = true;
+                // Save current state right before swap
+                scrollState.savedScrollTop = container.scrollTop;
+                scrollState.wasNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 150;
+                scrollState.lastPostCount = container.querySelectorAll('[id^="post-"]').length;
             }
         });
 
-        // After swap: apply states and scroll
+        // After swap: apply states and handle scroll
         document.body.addEventListener('htmx:afterSwap', function(evt) {
             if (evt.detail.target.id === 'thread-container') {
                 const container = evt.detail.target;
@@ -225,16 +242,31 @@
                 // Restore collapsed state
                 applyCollapsedState();
                 
-                // Smart auto-scroll: only if checkbox is on AND (was near bottom OR new posts arrived)
                 const autoScrollEnabled = document.getElementById('auto-scroll').checked;
                 const currentPostCount = container.querySelectorAll('[id^="post-"]').length;
-                const hasNewPosts = currentPostCount > lastPostCount;
+                const hasNewPosts = currentPostCount > scrollState.lastPostCount;
                 
-                if (autoScrollEnabled && (wasNearBottom || hasNewPosts)) {
-                    requestAnimationFrame(() => {
-                        container.scrollTop = container.scrollHeight;
-                    });
+                // Decide scroll behavior
+                if (!autoScrollEnabled) {
+                    // Auto-scroll is OFF: always restore previous position
+                    container.scrollTop = scrollState.savedScrollTop;
+                } else if (hasNewPosts) {
+                    // New posts and auto-scroll is on: go to bottom
+                    container.scrollTop = container.scrollHeight;
+                } else if (scrollState.wasNearBottom) {
+                    // Auto-scroll is ON and was near bottom: stay at bottom
+                    container.scrollTop = container.scrollHeight;
+                } else {
+                    // Auto-scroll is ON but wasn't near bottom: restore position
+                    container.scrollTop = scrollState.savedScrollTop;
                 }
+                
+                // Unlock tracking after a short delay to let scroll settle
+                setTimeout(() => {
+                    scrollState.isSwapping = false;
+                    // Update lastPostCount for next comparison
+                    scrollState.lastPostCount = currentPostCount;
+                }, 50);
             }
             
             if (evt.detail.target.id === 'agent-modal-content') {

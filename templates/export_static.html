@@ -12,6 +12,12 @@
         .markdown-content h1, .markdown-content h2, .markdown-content h3 { font-weight: bold; margin-top: 1rem; margin-bottom: 0.5rem; }
         .markdown-content ul { list-style-type: disc; padding-left: 1.5rem; }
         .markdown-content ol { list-style-type: decimal; padding-left: 1.5rem; }
+        .markdown-content h1 { font-size: 1.5rem; }
+        .markdown-content h2 { font-size: 1.25rem; }
+        .markdown-content h3 { font-size: 1.1rem; }
+        
+        /* Line clamp for card previews */
+        .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         
         /* Tabs */
         .tab-btn.active { border-bottom: 2px solid #2563eb; color: #2563eb; font-weight: bold; }
@@ -88,22 +94,60 @@
         <!-- Agents Tab -->
         <div id="view-agents" class="tab-content hidden grid grid-cols-1 md:grid-cols-2 gap-4">
             {% for agent in agents %}
-            <div class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+            <div onclick="showAgent('{{ agent.name }}')" class="bg-white p-6 rounded-lg border border-gray-200 shadow-sm cursor-pointer hover:shadow-md hover:border-blue-300 transition-all">
                 <div class="flex items-center gap-4 mb-4">
-                    <div class="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold text-lg">
+                    <div class="h-12 w-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
                         {{ agent.name[:2].upper() }}
                     </div>
                     <div>
                         <h3 class="font-bold text-gray-900">{{ agent.name }}</h3>
-                        <p class="text-sm text-gray-500">{{ agent.model }}</p>
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Active</span>
                     </div>
                 </div>
-                <div class="prose prose-sm max-w-none text-gray-600">
-                    <p class="italic">"{{ agent.system_prompt|truncate(100) }}"</p>
-                </div>
+                <div class="text-sm text-gray-500 line-clamp-2">Click to view full agent details...</div>
             </div>
             {% endfor %}
         </div>
+
+        <!-- Agent Detail Modal -->
+        <div id="agent-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50" onclick="closeAgentModal(event)">
+            <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-hidden" onclick="event.stopPropagation()">
+                <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+                    <div class="flex items-center gap-4">
+                        <div id="modal-avatar" class="h-12 w-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-sm"></div>
+                        <div>
+                            <h2 id="modal-name" class="text-xl font-bold text-gray-900"></h2>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Active</span>
+                        </div>
+                    </div>
+                    <button onclick="closeAgentModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+                </div>
+                <div class="overflow-y-auto max-h-[calc(90vh-80px)] p-6 space-y-6">
+                    <!-- Persona Card -->
+                    <div class="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+                        <div class="bg-gray-50/80 px-4 py-2 border-b border-gray-100 flex items-center gap-2">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                            <h3 class="font-semibold text-xs uppercase tracking-wider text-gray-500">Core Persona</h3>
+                        </div>
+                        <div id="modal-persona" class="markdown-content p-4 text-sm text-gray-600 leading-relaxed bg-white"></div>
+                    </div>
+
+                    <!-- Memory Card -->
+                    <div class="bg-amber-50 rounded-lg border border-amber-100 overflow-hidden shadow-sm">
+                        <div class="bg-amber-100/50 px-4 py-2 border-b border-amber-100 flex items-center gap-2">
+                            <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                            <h3 class="font-semibold text-xs uppercase tracking-wider text-amber-700">Internal State & Memory</h3>
+                        </div>
+                        <div id="modal-memory" class="markdown-content p-4 text-sm text-amber-900 leading-relaxed bg-amber-50/30"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Agent Data (embedded JSON) -->
+        <script id="agent-data" type="application/json">
+            {{ agents | tojson }}
+        </script>
     </div>
 
     <script>
@@ -165,6 +209,35 @@
                 card.classList.add('opacity-60');
             }
         }
+
+        // Agent Modal Functions
+        const agentData = JSON.parse(document.getElementById('agent-data').textContent);
+
+        function showAgent(name) {
+            const agent = agentData.find(a => a.name === name);
+            if (!agent) return;
+
+            document.getElementById('modal-avatar').textContent = name.slice(0, 2).toUpperCase();
+            document.getElementById('modal-name').textContent = name;
+            document.getElementById('modal-persona').innerHTML = md.render(agent.agent_md || 'No persona defined.');
+            document.getElementById('modal-memory').innerHTML = md.render(agent.memory_md || 'No memory recorded.');
+
+            const modal = document.getElementById('agent-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeAgentModal(event) {
+            if (event && event.target !== event.currentTarget) return;
+            const modal = document.getElementById('agent-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeAgentModal();
+        });
     </script>
 </body>
 </html>

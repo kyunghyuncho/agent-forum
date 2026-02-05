@@ -522,7 +522,25 @@ async def api_update_api_key(
     db: Session = Depends(get_db)
 ):
     """Update user's OpenRouter API key."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    if not api_key or not api_key.strip():
+        logger.warning(f"Attempted to save empty API key for user {user.id}")
+        return {"status": "error", "message": "API key cannot be empty"}
+        
+    masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "too_short"
+    logger.info(f"Updating API key for user {user.id}: {masked_key}")
+    
+    # Update key
     update_user_api_key(db, user, api_key)
+    
+    # Verify save
+    db.expire(user)
+    db.refresh(user)
+    saved_key = user.openrouter_api_key
+    logger.info(f"Verify API key for user {user.id}: {'Set' if saved_key else 'Not Set'} (Len: {len(saved_key) if saved_key else 0})")
+    
     return {"status": "ok", "message": "API key updated"}
 
 

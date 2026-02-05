@@ -53,6 +53,18 @@ class Settings:
     # - safebrowsing: Use Google Safe Browsing API to check URL safety (more permissive)
     WEB_BROWSE_SAFETY_MODE = os.getenv("WEB_BROWSE_SAFETY_MODE", "safebrowsing")
     
+    # Resend API Key for Email Verification
+    RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+    
+    # App URL for email links (e.g. https://myapp.railway.app)
+    # If not set, defaults to http://localhost:8000
+    # Railway provides RAILWAY_PUBLIC_DOMAIN dynamically
+    APP_URL = os.getenv("APP_URL")
+    if not APP_URL and os.getenv("RAILWAY_PUBLIC_DOMAIN"):
+        APP_URL = f"https://{os.getenv('RAILWAY_PUBLIC_DOMAIN')}"
+    if not APP_URL:
+        APP_URL = "http://localhost:8000"
+    
     # Google Safe Browsing API key (required if SAFETY_MODE is "safebrowsing")
     # Get your free API key at: https://console.cloud.google.com/apis/library/safebrowsing.googleapis.com
     GOOGLE_SAFE_BROWSING_API_KEY = os.getenv("GOOGLE_SAFE_BROWSING_API_KEY", "")

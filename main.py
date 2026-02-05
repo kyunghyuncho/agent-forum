@@ -53,7 +53,21 @@ async def lifespan(app: FastAPI):
         if not global_settings:
             global_settings = GlobalSettings()
             db.add(global_settings)
-            db.commit()
+            
+        # Sync potentially missing settings from env vars
+        if not global_settings.resend_api_key and settings.RESEND_API_KEY:
+            global_settings.resend_api_key = settings.RESEND_API_KEY
+            print(f"Initialized Resend API key from environment")
+            
+        if (not global_settings.app_url or global_settings.app_url == "http://localhost:8000") and settings.APP_URL != "http://localhost:8000":
+            global_settings.app_url = settings.APP_URL
+            print(f"Initialized App URL from environment: {settings.APP_URL}")
+            
+        if not global_settings.google_safe_browsing_api_key and settings.GOOGLE_SAFE_BROWSING_API_KEY:
+            global_settings.google_safe_browsing_api_key = settings.GOOGLE_SAFE_BROWSING_API_KEY
+            print(f"Initialized Google Safe Browsing API key from environment")
+            
+        db.commit()
     finally:
         db.close()
     

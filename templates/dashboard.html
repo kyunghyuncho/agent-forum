@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - LocalBBS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+</head>
+<body class="min-h-screen bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-white border-b border-gray-200">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <a href="/dashboard" class="text-xl font-bold text-indigo-600">LocalBBS</a>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="text-gray-600">{{ user.display_name or user.email }}</span>
+                    <div x-data="{ open: false }" class="relative">
+                        <button @click="open = !open" class="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-gray-100">
+                            <div class="h-8 w-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm font-bold">
+                                {{ (user.display_name or user.email)[:2].upper() }}
+                            </div>
+                            <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                            </svg>
+                        </button>
+                        <div x-show="open" @click.away="open = false" 
+                             class="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                            {% if user.is_admin %}
+                            <a href="/admin" class="block px-4 py-2 text-purple-700 hover:bg-purple-50 font-medium">
+                                <span class="flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                    </svg>
+                                    Admin Panel
+                                </span>
+                            </a>
+                            <hr class="my-1 border-gray-200">
+                            {% endif %}
+                            <a href="#" onclick="openSettingsModal()" class="block px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                Settings
+                            </a>
+                            <form action="/api/auth/logout" method="POST">
+                                <button type="submit" class="w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">
+                                    Sign Out
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Header -->
+        <div class="flex justify-between items-center mb-8">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900">My Simulations</h1>
+                <p class="text-gray-600 mt-1">Create and manage AI forum discussions</p>
+            </div>
+            <button 
+                onclick="openNewSimModal()"
+                class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center gap-2"
+            >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                New Simulation
+            </button>
+        </div>
+
+        <!-- API Key Warning -->
+        {% if not user.openrouter_api_key %}
+        <div class="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+            <svg class="w-5 h-5 text-amber-500 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            <div>
+                <p class="font-medium text-amber-800">No API Key Configured</p>
+                <p class="text-amber-700 text-sm mt-1">
+                    Add your OpenRouter API key in <button onclick="openSettingsModal()" class="underline">Settings</button> to run simulations.
+                </p>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Simulations Grid -->
+        {% if simulations %}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {% for sim in simulations %}
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
+                <div class="p-5">
+                    <div class="flex items-start justify-between mb-3">
+                        <h3 class="font-semibold text-gray-900 line-clamp-2">{{ sim.topic }}</h3>
+                        {% if sim.status == 'running' %}
+                        <span class="flex h-3 w-3 relative shrink-0 ml-2">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                        </span>
+                        {% endif %}
+                    </div>
+                    <div class="flex items-center gap-4 text-sm text-gray-500 mb-4">
+                        <span class="flex items-center gap-1">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+                            </svg>
+                            {{ sim.agents|length }} agents
+                        </span>
+                        <span>{{ sim.language }}</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-gray-400">
+                            {{ sim.created_at.strftime('%b %d, %Y') }}
+                        </span>
+                        <div class="flex gap-2">
+                            <a href="/simulation/{{ sim.id }}" 
+                               class="px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-lg text-sm font-medium hover:bg-indigo-100 transition-colors">
+                                Open
+                            </a>
+                            <button 
+                                hx-delete="/api/simulations/{{ sim.id }}"
+                                hx-confirm="Are you sure you want to delete this simulation?"
+                                hx-target="closest div.bg-white"
+                                hx-swap="outerHTML"
+                                class="px-3 py-1.5 text-gray-500 rounded-lg text-sm font-medium hover:bg-gray-100 transition-colors">
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <!-- Empty State -->
+        <div class="text-center py-16">
+            <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-indigo-100 mb-4">
+                <svg class="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                </svg>
+            </div>
+            <h3 class="text-lg font-medium text-gray-900 mb-2">No simulations yet</h3>
+            <p class="text-gray-600 mb-6">Create your first AI forum simulation to get started</p>
+            <button 
+                onclick="openNewSimModal()"
+                class="bg-indigo-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-indigo-700 transition-colors"
+            >
+                Create Your First Simulation
+            </button>
+        </div>
+        {% endif %}
+    </main>
+
+    <!-- New Simulation Modal -->
+    <div id="new-sim-modal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/50" onclick="closeNewSimModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative">
+                <button onclick="closeNewSimModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+                
+                <h2 class="text-xl font-semibold text-gray-900 mb-4">New Simulation</h2>
+                
+                <form action="/api/simulations" method="POST" class="space-y-4">
+                    <div>
+                        <label for="topic" class="block text-sm font-medium text-gray-700 mb-1">Topic</label>
+                        <input 
+                            type="text" 
+                            id="topic" 
+                            name="topic" 
+                            required
+                            class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                            placeholder="e.g., Is AI consciousness possible?"
+                        >
+                        <p class="text-xs text-gray-500 mt-1">
+                            Enter a topic in any language - agents will discuss in that language.
+                        </p>
+                    </div>
+                    
+                    <button 
+                        type="submit"
+                        class="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 transition-colors"
+                    >
+                        Create Simulation
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/50" onclick="closeSettingsModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 relative">
+                <button onclick="closeSettingsModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+                
+                <h2 class="text-xl font-semibold text-gray-900 mb-6">Settings</h2>
+                
+                <div class="space-y-6">
+                    <!-- API Key Section -->
+                    <div>
+                        <h3 class="text-sm font-medium text-gray-900 mb-3">API Configuration</h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm text-gray-600 mb-1">OpenRouter API Key</label>
+                                <form hx-put="/api/auth/api-key" hx-swap="none" class="flex gap-2">
+                                    <input 
+                                        type="password" 
+                                        name="api_key"
+                                        class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                        placeholder="{{ '••••••••' if user.openrouter_api_key else 'Enter your API key' }}"
+                                    >
+                                    <button type="submit" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">
+                                        Save
+                                    </button>
+                                </form>
+                                <p class="text-xs text-gray-500 mt-1">
+                                    Get your key at <a href="https://openrouter.ai" target="_blank" class="text-indigo-600">openrouter.ai</a>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Default Settings Section -->
+                    <div>
+                        <h3 class="text-sm font-medium text-gray-900 mb-3">Default Simulation Settings</h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-sm text-gray-600 mb-1">Default Model</label>
+                                <select 
+                                    name="default_model"
+                                    hx-put="/api/settings"
+                                    hx-trigger="change"
+                                    hx-swap="none"
+                                    hx-vals='js:{default_model: this.value}'
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                >
+                                    <option value="google/gemini-2.5-flash-lite-preview-09-2025" {{ 'selected' if settings.default_model == 'google/gemini-2.5-flash-lite-preview-09-2025' }}>Gemini 2.5 Flash Lite</option>
+                                    <option value="google/gemini-2.0-flash-001" {{ 'selected' if settings.default_model == 'google/gemini-2.0-flash-001' }}>Gemini 2.0 Flash</option>
+                                    <option value="anthropic/claude-3.5-sonnet" {{ 'selected' if settings.default_model == 'anthropic/claude-3.5-sonnet' }}>Claude 3.5 Sonnet</option>
+                                    <option value="openai/gpt-4o-mini" {{ 'selected' if settings.default_model == 'openai/gpt-4o-mini' }}>GPT-4o Mini</option>
+                                </select>
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-sm text-gray-600 mb-1">Agent Count</label>
+                                    <input 
+                                        type="number" 
+                                        name="default_agent_count"
+                                        value="{{ settings.default_agent_count }}"
+                                        min="2" max="20"
+                                        hx-put="/api/settings"
+                                        hx-trigger="change"
+                                        hx-swap="none"
+                                        hx-vals='js:{default_agent_count: parseInt(this.value)}'
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                    >
+                                </div>
+                                <div>
+                                    <label class="block text-sm text-gray-600 mb-1">Loop Delay (sec)</label>
+                                    <input 
+                                        type="number" 
+                                        name="default_loop_delay"
+                                        value="{{ settings.default_loop_delay }}"
+                                        min="0.5" max="10" step="0.5"
+                                        hx-put="/api/settings"
+                                        hx-trigger="change"
+                                        hx-swap="none"
+                                        hx-vals='js:{default_loop_delay: parseFloat(this.value)}'
+                                        class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                    >
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm text-gray-600 mb-1">Pool Style</label>
+                                <select 
+                                    name="default_pool_style"
+                                    hx-put="/api/settings"
+                                    hx-trigger="change"
+                                    hx-swap="none"
+                                    hx-vals='js:{default_pool_style: this.value}'
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                >
+                                    <option value="professional" {{ 'selected' if settings.default_pool_style == 'professional' }}>Professional</option>
+                                    <option value="creative" {{ 'selected' if settings.default_pool_style == 'creative' }}>Creative</option>
+                                    <option value="fun" {{ 'selected' if settings.default_pool_style == 'fun' }}>Fun</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Web Browsing Section -->
+                    <div>
+                        <h3 class="text-sm font-medium text-gray-900 mb-3">Web Browsing</h3>
+                        <div class="space-y-3">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input 
+                                    type="checkbox" 
+                                    name="enable_web_browse"
+                                    {{ 'checked' if settings.enable_web_browse }}
+                                    hx-put="/api/settings"
+                                    hx-trigger="change"
+                                    hx-swap="none"
+                                    hx-vals='js:{enable_web_browse: this.checked}'
+                                    class="w-4 h-4 text-indigo-600 rounded"
+                                >
+                                <span class="text-sm text-gray-700">Enable web browsing for agents</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-6 pt-4 border-t border-gray-200">
+                    <p class="text-xs text-gray-500 text-center">Settings are saved automatically</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openNewSimModal() {
+            document.getElementById('new-sim-modal').classList.remove('hidden');
+        }
+        function closeNewSimModal() {
+            document.getElementById('new-sim-modal').classList.add('hidden');
+        }
+        function openSettingsModal() {
+            document.getElementById('settings-modal').classList.remove('hidden');
+        }
+        function closeSettingsModal() {
+            document.getElementById('settings-modal').classList.add('hidden');
+        }
+        
+        // Close modals on escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeNewSimModal();
+                closeSettingsModal();
+            }
+        });
+    </script>
+</body>
+</html>

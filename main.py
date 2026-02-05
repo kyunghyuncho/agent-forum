@@ -5,14 +5,29 @@ import json
 import shutil
 from datetime import datetime
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request, Form, Depends, UploadFile, File
-from fastapi.responses import HTMLResponse
+from typing import Optional
+
+from fastapi import FastAPI, Request, Form, Depends, UploadFile, File, HTTPException, status
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-from database import get_db, Post, Thread
-from simulation import simulation
+
+from database import get_db, init_db, Post, Thread, User, UserSettings, Simulation, Agent, GlobalSettings
 from config import settings
+from auth import (
+    UserCreate, UserLogin, Token, UserResponse,
+    create_user, authenticate_user, create_access_token, 
+    get_current_user, get_current_user_optional, user_to_response,
+    get_user_by_email, update_user_api_key, get_current_admin_user
+)
+from services.settings_service import (
+    SettingsService, UserSettingsUpdate, UserSettingsResponse, settings_service
+)
+from services.email_service import EmailService, get_email_service
+
+# Import simulation module - we'll update this later for multi-user
+from simulation import simulation
 
 # --- Background Task ---
 def run_loop():
@@ -26,7 +41,21 @@ def run_loop():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Start simulation thread
+    # Initialize database
+    init_db()
+    
+    # Initialize global settings if they don't exist
+    db = next(get_db())
+    try:
+        global_settings = db.query(GlobalSettings).first()
+        if not global_settings:
+            global_settings = GlobalSettings()
+            db.add(global_settings)
+            db.commit()
+    finally:
+        db.close()
+    
+    # Start simulation thread (for legacy single-user mode)
     sim_thread = threading.Thread(target=run_loop, daemon=True)
     sim_thread.start()
     yield
@@ -37,16 +66,770 @@ app = FastAPI(lifespan=lifespan)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
+
+# ============================================================================
+# Health Check (for Railway and monitoring)
+# ============================================================================
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for Railway and monitoring."""
+    return {"status": "healthy", "service": "localbbs"}
+
+
+# ============================================================================
+# Email Verification Routes
+# ============================================================================
+
+@app.get("/verify-pending", response_class=HTMLResponse)
+async def verify_pending_page(request: Request, email: str = ""):
+    """Show email verification pending page."""
+    return templates.TemplateResponse("verify_pending.html", {
+        "request": request,
+        "email": email
+    })
+
+
+@app.get("/verify-email", response_class=HTMLResponse)
+async def verify_email(
+    request: Request,
+    token: str,
+    db: Session = Depends(get_db)
+):
+    """Verify email with token from email link."""
+    email_service = get_email_service(db)
+    user = email_service.verify_token(token)
+    
+    if not user:
+        return templates.TemplateResponse("verify_result.html", {
+            "request": request,
+            "success": False,
+            "message": "Invalid or expired verification link. Please request a new one."
+        })
+    
+    email_service.mark_user_verified(user)
+    
+    return templates.TemplateResponse("verify_result.html", {
+        "request": request,
+        "success": True,
+        "message": "Your email has been verified! You can now log in."
+    })
+
+
+@app.post("/api/auth/resend-verification")
+async def resend_verification(
+    email: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Resend verification email."""
+    user = get_user_by_email(db, email)
+    
+    if not user:
+        # Don't reveal if email exists
+        return {"status": "ok", "message": "If the email exists, a verification link has been sent."}
+    
+    if user.is_verified:
+        return {"status": "ok", "message": "Email is already verified. Please log in."}
+    
+    email_service = get_email_service(db)
+    await email_service.send_verification_email(user)
+    
+    return {"status": "ok", "message": "Verification email sent. Please check your inbox."}
+
+
+# ============================================================================
+# Admin Routes
+# ============================================================================
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_dashboard(
+    request: Request,
+    admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Admin dashboard."""
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    global_settings = db.query(GlobalSettings).first()
+    
+    # Get some stats
+    total_simulations = db.query(Simulation).count()
+    total_posts = db.query(Post).count()
+    
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "admin": admin,
+        "users": users,
+        "global_settings": global_settings,
+        "stats": {
+            "total_users": len(users),
+            "verified_users": sum(1 for u in users if u.is_verified),
+            "total_simulations": total_simulations,
+            "total_posts": total_posts
+        }
+    })
+
+
+@app.get("/api/admin/users")
+async def api_admin_list_users(
+    admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """List all users (admin only)."""
+    users = db.query(User).order_by(User.created_at.desc()).all()
+    return [user_to_response(u) for u in users]
+
+
+@app.put("/api/admin/users/{user_id}/toggle-active")
+async def api_admin_toggle_user_active(
+    user_id: int,
+    admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Enable/disable a user account (admin only)."""
+    if user_id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot disable your own account"
+        )
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.is_active = not user.is_active
+    db.commit()
+    
+    return {"status": "ok", "is_active": user.is_active}
+
+
+@app.put("/api/admin/users/{user_id}/toggle-admin")
+async def api_admin_toggle_user_admin(
+    user_id: int,
+    admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Make/remove admin status for a user (admin only)."""
+    if user_id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot modify your own admin status"
+        )
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.is_admin = not user.is_admin
+    db.commit()
+    
+    return {"status": "ok", "is_admin": user.is_admin}
+
+
+@app.put("/api/admin/users/{user_id}/verify")
+async def api_admin_verify_user(
+    user_id: int,
+    admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Manually verify a user's email (admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.is_verified = True
+    user.verification_token = None
+    user.verification_token_expires = None
+    db.commit()
+    
+    return {"status": "ok", "is_verified": True}
+
+
+@app.delete("/api/admin/users/{user_id}")
+async def api_admin_delete_user(
+    user_id: int,
+    admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a user and all their data (admin only)."""
+    if user_id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your own account"
+        )
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    db.delete(user)
+    db.commit()
+    
+    return {"status": "ok", "message": "User deleted"}
+
+
+@app.get("/api/admin/settings")
+async def api_admin_get_global_settings(
+    admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Get global application settings (admin only)."""
+    global_settings = db.query(GlobalSettings).first()
+    if not global_settings:
+        global_settings = GlobalSettings()
+        db.add(global_settings)
+        db.commit()
+        db.refresh(global_settings)
+    
+    return {
+        "google_safe_browsing_api_key": global_settings.google_safe_browsing_api_key or "",
+        "resend_api_key": global_settings.resend_api_key or "",
+        "email_from_address": global_settings.email_from_address,
+        "email_from_name": global_settings.email_from_name,
+        "require_email_verification": global_settings.require_email_verification,
+        "allow_registration": global_settings.allow_registration,
+        "app_name": global_settings.app_name,
+        "app_url": global_settings.app_url or "",
+        "max_simulations_per_user": global_settings.max_simulations_per_user
+    }
+
+
+@app.put("/api/admin/settings")
+async def api_admin_update_global_settings(
+    google_safe_browsing_api_key: str = Form(None),
+    resend_api_key: str = Form(None),
+    email_from_address: str = Form(None),
+    email_from_name: str = Form(None),
+    require_email_verification: bool = Form(True),
+    allow_registration: bool = Form(True),
+    app_name: str = Form(None),
+    app_url: str = Form(None),
+    max_simulations_per_user: int = Form(5),
+    admin: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db)
+):
+    """Update global application settings (admin only)."""
+    global_settings = db.query(GlobalSettings).first()
+    if not global_settings:
+        global_settings = GlobalSettings()
+        db.add(global_settings)
+    
+    # Update fields
+    if google_safe_browsing_api_key is not None:
+        global_settings.google_safe_browsing_api_key = google_safe_browsing_api_key or None
+    if resend_api_key is not None:
+        global_settings.resend_api_key = resend_api_key or None
+    if email_from_address is not None:
+        global_settings.email_from_address = email_from_address
+    if email_from_name is not None:
+        global_settings.email_from_name = email_from_name
+    global_settings.require_email_verification = require_email_verification
+    global_settings.allow_registration = allow_registration
+    if app_name is not None:
+        global_settings.app_name = app_name
+    if app_url is not None:
+        global_settings.app_url = app_url or None
+    global_settings.max_simulations_per_user = max_simulations_per_user
+    global_settings.updated_by = admin.id
+    
+    db.commit()
+    
+    return {"status": "ok", "message": "Settings updated"}
+
+
+# ============================================================================
+# Authentication Routes
+# ============================================================================
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Render login page."""
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    """Render registration page."""
+    return templates.TemplateResponse("register.html", {"request": request})
+
+
+@app.post("/api/auth/register")
+async def api_register(
+    email: str = Form(...),
+    password: str = Form(...),
+    display_name: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    """Register a new user."""
+    # Check if registration is allowed
+    global_settings = db.query(GlobalSettings).first()
+    if global_settings and not global_settings.allow_registration:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is currently disabled"
+        )
+    
+    # Check if user exists
+    existing_user = get_user_by_email(db, email)
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered"
+        )
+    
+    # Determine if email verification is required
+    require_verification = True
+    if global_settings:
+        require_verification = global_settings.require_email_verification
+    
+    # Create user (first user is auto-verified and admin)
+    user_data = UserCreate(email=email, password=password, display_name=display_name)
+    is_first_user = db.query(User).count() == 0
+    user = create_user(db, user_data, auto_verify=not require_verification or is_first_user)
+    
+    # Send verification email if required and not first user
+    if require_verification and not is_first_user:
+        email_service = get_email_service(db)
+        await email_service.send_verification_email(user)
+        # Redirect to verification pending page
+        return RedirectResponse(url=f"/verify-pending?email={email}", status_code=status.HTTP_303_SEE_OTHER)
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": user.id})
+    
+    # Return response with cookie
+    response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=60 * 60 * 24 * 7,  # 1 week
+        samesite="lax"
+    )
+    return response
+
+
+@app.post("/api/auth/login")
+async def api_login(
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Login and get access token."""
+    user = authenticate_user(db, email, password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password"
+        )
+    
+    # Check if user is verified (unless verification is disabled)
+    global_settings = db.query(GlobalSettings).first()
+    if global_settings and global_settings.require_email_verification:
+        if not user.is_verified:
+            return RedirectResponse(
+                url=f"/verify-pending?email={email}&not_verified=1",
+                status_code=status.HTTP_303_SEE_OTHER
+            )
+    
+    # Check if account is active
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account has been disabled. Please contact an administrator."
+        )
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": user.id})
+    
+    # Return response with cookie
+    response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=60 * 60 * 24 * 7,  # 1 week
+        samesite="lax"
+    )
+    return response
+
+
+@app.post("/api/auth/logout")
+async def api_logout():
+    """Logout and clear cookie."""
+    response = RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+    response.delete_cookie("access_token")
+    return response
+
+
+@app.get("/api/auth/me")
+async def api_get_me(user: User = Depends(get_current_user)):
+    """Get current user info."""
+    return user_to_response(user)
+
+
+# ============================================================================
+# User Settings Routes
+# ============================================================================
+
+@app.get("/api/settings", response_model=UserSettingsResponse)
+async def api_get_settings(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get current user's persistent settings."""
+    user_settings = settings_service.get_user_settings(db, user.id)
+    return settings_service.to_response(user_settings)
+
+
+@app.put("/api/settings", response_model=UserSettingsResponse)
+async def api_update_settings(
+    settings_update: UserSettingsUpdate,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update user's persistent settings."""
+    updated = settings_service.update_user_settings(
+        db, user.id, **settings_update.dict(exclude_unset=True)
+    )
+    return settings_service.to_response(updated)
+
+
+@app.put("/api/auth/api-key")
+async def api_update_api_key(
+    api_key: str = Form(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update user's OpenRouter API key."""
+    update_user_api_key(db, user, api_key)
+    return {"status": "ok", "message": "API key updated"}
+
+
+# ============================================================================
+# Dashboard & Simulation Management (Multi-User)
+# ============================================================================
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """User dashboard showing their simulations."""
+    simulations = db.query(Simulation).filter(Simulation.user_id == user.id).order_by(Simulation.created_at.desc()).all()
+    user_settings = settings_service.get_user_settings(db, user.id)
+    
+    return templates.TemplateResponse("dashboard.html", {
+        "request": request,
+        "user": user,
+        "simulations": simulations,
+        "settings": user_settings
+    })
+
+
+@app.post("/api/simulations")
+async def api_create_simulation(
+    topic: str = Form(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Create a new simulation."""
+    # Get user's default settings
+    user_settings = settings_service.get_user_settings(db, user.id)
+    
+    # Detect language from topic
+    from simulation import detect_language
+    language = detect_language(topic)
+    
+    # Create simulation
+    sim = Simulation(
+        user_id=user.id,
+        topic=topic,
+        language=language,
+        pool_style=user_settings.default_pool_style,
+        status="stopped"
+    )
+    
+    # Apply user's default settings
+    settings_service.apply_to_new_simulation(db, user_settings, sim)
+    
+    db.add(sim)
+    db.commit()
+    db.refresh(sim)
+    
+    return RedirectResponse(url=f"/simulation/{sim.id}", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/simulation/{sim_id}", response_class=HTMLResponse)
+async def view_simulation(
+    request: Request,
+    sim_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """View a specific simulation."""
+    sim = db.query(Simulation).filter(
+        Simulation.id == sim_id,
+        Simulation.user_id == user.id
+    ).first()
+    
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    return templates.TemplateResponse("simulation.html", {
+        "request": request,
+        "user": user,
+        "simulation": sim,
+        "settings": settings
+    })
+
+
+@app.delete("/api/simulations/{sim_id}")
+async def api_delete_simulation(
+    sim_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a simulation."""
+    sim = db.query(Simulation).filter(
+        Simulation.id == sim_id,
+        Simulation.user_id == user.id
+    ).first()
+    
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    db.delete(sim)
+    db.commit()
+    
+    return {"status": "ok", "message": "Simulation deleted"}
+
+
+# ============================================================================
+# Simulation Control API (Multi-User)
+# ============================================================================
+
+@app.post("/api/simulations/{sim_id}/start", response_class=HTMLResponse)
+async def api_start_simulation(
+    sim_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Start a simulation."""
+    sim = db.query(Simulation).filter(
+        Simulation.id == sim_id,
+        Simulation.user_id == user.id
+    ).first()
+    
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    # Update status
+    sim.status = "running"
+    db.commit()
+    
+    # TODO: In future, trigger the simulation manager to start this simulation
+    # For now, we'll handle this in a background task
+    
+    return HTMLResponse(content=f'''
+        <button 
+            class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded" 
+            hx-post="/api/simulations/{sim_id}/stop" 
+            hx-target="#control-panel" 
+            hx-swap="innerHTML">
+            Stop
+        </button>
+        <span class="flex h-3 w-3 relative">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+        </span>
+    ''')
+
+
+@app.post("/api/simulations/{sim_id}/stop", response_class=HTMLResponse)
+async def api_stop_simulation(
+    sim_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Stop a simulation."""
+    sim = db.query(Simulation).filter(
+        Simulation.id == sim_id,
+        Simulation.user_id == user.id
+    ).first()
+    
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    # Update status
+    sim.status = "stopped"
+    db.commit()
+    
+    return HTMLResponse(content=f'''
+        <button 
+            class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded" 
+            hx-post="/api/simulations/{sim_id}/start" 
+            hx-target="#control-panel" 
+            hx-swap="innerHTML">
+            Start
+        </button>
+    ''')
+
+
+@app.get("/api/simulations/{sim_id}/posts", response_class=HTMLResponse)
+async def api_get_simulation_posts(
+    request: Request,
+    sim_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get posts for a simulation as HTML."""
+    sim = db.query(Simulation).filter(
+        Simulation.id == sim_id,
+        Simulation.user_id == user.id
+    ).first()
+    
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    # Get thread for this simulation
+    thread = db.query(Thread).filter(Thread.simulation_id == sim_id).first()
+    
+    if not thread:
+        return HTMLResponse(content='''
+            <div class="text-center py-8 text-gray-500">
+                <p>No posts yet. Start the simulation to generate discussion.</p>
+            </div>
+        ''')
+    
+    # Get posts
+    posts = db.query(Post).filter(Post.thread_id == thread.id).order_by(Post.created_at.asc()).all()
+    
+    if not posts:
+        return HTMLResponse(content='''
+            <div class="text-center py-8 text-gray-500">
+                <p>Waiting for agents to start posting...</p>
+            </div>
+        ''')
+    
+    # Build tree structure
+    post_map = {p.id: {"post": p, "children": []} for p in posts}
+    root_nodes = []
+
+    for p in posts:
+        node = post_map[p.id]
+        if p.parent_id and p.parent_id in post_map:
+            post_map[p.parent_id]["children"].append(node)
+        else:
+            root_nodes.append(node)
+    
+    return templates.TemplateResponse("thread.html", {"request": request, "nodes": root_nodes})
+
+
+@app.get("/api/simulations/{sim_id}/agents", response_class=HTMLResponse)
+async def api_get_simulation_agents(
+    sim_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get agents for a simulation."""
+    sim = db.query(Simulation).filter(
+        Simulation.id == sim_id,
+        Simulation.user_id == user.id
+    ).first()
+    
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    agents = db.query(Agent).filter(
+        Agent.simulation_id == sim_id,
+        Agent.status == "active"
+    ).all()
+    
+    if not agents:
+        return HTMLResponse(content='''
+            <div class="text-center py-4 text-gray-500 text-sm">
+                <p>No agents yet. Start the simulation to spawn agents.</p>
+            </div>
+        ''')
+    
+    html = '<div class="space-y-2">'
+    for agent in agents:
+        html += f'''
+        <div class="group p-3 bg-white border border-gray-100 rounded-lg cursor-pointer hover:bg-indigo-50 hover:border-indigo-100 transition-all duration-200 flex items-center gap-3" 
+             hx-get="/api/simulations/{sim_id}/agents/{agent.id}" 
+             hx-target="#agent-modal-content" 
+             hx-trigger="click">
+            <div class="h-8 w-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold group-hover:bg-indigo-200">
+                {agent.name[:2].upper()}
+            </div>
+            <span class="text-sm font-medium text-gray-700 group-hover:text-indigo-700 truncate">{agent.name}</span>
+        </div>
+        '''
+    html += '</div>'
+    return HTMLResponse(content=html)
+
+
+@app.get("/api/simulations/{sim_id}/agents/{agent_id}", response_class=HTMLResponse)
+async def api_get_agent_details(
+    request: Request,
+    sim_id: int,
+    agent_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get agent details."""
+    agent = db.query(Agent).filter(
+        Agent.id == agent_id,
+        Agent.simulation_id == sim_id
+    ).first()
+    
+    if not agent:
+        return HTMLResponse(content='<div class="p-4">Agent not found</div>')
+    
+    # Verify user owns the simulation
+    sim = db.query(Simulation).filter(
+        Simulation.id == sim_id,
+        Simulation.user_id == user.id
+    ).first()
+    
+    if not sim:
+        return HTMLResponse(content='<div class="p-4">Access denied</div>')
+    
+    return templates.TemplateResponse("agent_view.html", {
+        "request": request,
+        "name": agent.name,
+        "agent_md": agent.agent_md or "",
+        "memory_md": agent.memory_md or ""
+    })
+
+
+# ============================================================================
+# Legacy Routes (Single-User Mode - for backward compatibility)
+# ============================================================================
+
 @app.get("/", response_class=HTMLResponse)
-async def read_root(request: Request, db: Session = Depends(get_db)):
-    # Get current topic
-    thread = db.query(Thread).first()
+async def read_root(
+    request: Request,
+    user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    Root route - redirects to dashboard if logged in, 
+    otherwise shows legacy single-user interface.
+    """
+    if user:
+        return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+    
+    # Legacy single-user mode
+    thread = db.query(Thread).filter(Thread.simulation_id == None).first()
     topic = thread.title if thread else ""
     return templates.TemplateResponse("index.html", {
         "request": request, 
         "topic": topic, 
         "simulation_running": simulation.running,
-        "settings": settings
+        "settings": settings,
+        "user": None
     })
 
 @app.post("/start")

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Your Email - LocalBBS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gradient-to-br from-purple-600 to-blue-500 min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md text-center">
+        <div class="mb-6">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mx-auto text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+        </div>
+        
+        <h1 class="text-2xl font-bold text-gray-900 mb-4">Check Your Email</h1>
+        
+        {% if email %}
+        <p class="text-gray-600 mb-6">
+            We've sent a verification link to<br>
+            <span class="font-medium text-gray-900">{{ email }}</span>
+        </p>
+        {% else %}
+        <p class="text-gray-600 mb-6">
+            We've sent a verification link to your email address.
+        </p>
+        {% endif %}
+        
+        <div class="bg-blue-50 rounded-lg p-4 mb-6">
+            <p class="text-sm text-blue-800">
+                Click the link in the email to verify your account. The link will expire in 24 hours.
+            </p>
+        </div>
+        
+        <div class="space-y-4">
+            <p class="text-sm text-gray-500">Didn't receive the email? Check your spam folder or</p>
+            
+            <form action="/api/auth/resend-verification" method="post" class="inline">
+                <input type="hidden" name="email" value="{{ email }}">
+                <button type="submit" class="text-purple-600 hover:text-purple-800 font-medium">
+                    Resend verification email
+                </button>
+            </form>
+        </div>
+        
+        <div class="mt-8 pt-6 border-t">
+            <a href="/login" class="text-gray-600 hover:text-purple-600">
+                ← Back to Login
+            </a>
+        </div>
+    </div>
+</body>
+</html>

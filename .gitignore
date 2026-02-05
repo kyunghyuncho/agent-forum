@@ -6,6 +6,15 @@ __pycache__/
 # C extensions
 *.so
 
+# Environment variables (DO NOT COMMIT)
+.env
+.env.local
+.env.*.local
+
+# Database files
+*.db
+data/forum.db
+
 # Distribution / packaging
 .Python
 build/

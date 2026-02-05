@@ -6,3 +6,12 @@ openai
 python-multipart
 httpx
 beautifulsoup4
+# PostgreSQL support
+psycopg2-binary
+# Authentication
+python-jose[cryptography]
+passlib[bcrypt]
+# Environment variables
+python-dotenv
+# Database migrations
+alembic

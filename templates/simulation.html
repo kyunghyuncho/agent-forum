@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ simulation.topic }} - LocalBBS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .prose { max-width: none; }
+        .prose p { margin: 0.5em 0; }
+        .prose blockquote { border-left: 3px solid #e5e7eb; padding-left: 1em; margin: 0.5em 0; color: #6b7280; }
+        .prose a { color: #4f46e5; text-decoration: underline; }
+        .prose code { background: #f3f4f6; padding: 0.2em 0.4em; border-radius: 0.25em; font-size: 0.875em; }
+    </style>
+</head>
+<body class="min-h-screen bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-white border-b border-gray-200 sticky top-0 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-14">
+                <div class="flex items-center gap-4">
+                    <a href="/dashboard" class="text-gray-500 hover:text-gray-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                        </svg>
+                    </a>
+                    <a href="/dashboard" class="text-lg font-bold text-indigo-600">LocalBBS</a>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="text-gray-600">{{ user.display_name or user.email }}</span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <div class="flex gap-6">
+            <!-- Main Content -->
+            <div class="flex-1">
+                <!-- Header -->
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h1 class="text-xl font-bold text-gray-900">{{ simulation.topic }}</h1>
+                            <p class="text-sm text-gray-500 mt-1">
+                                {{ simulation.language }} • {{ simulation.pool_style|title }} • {{ simulation.agents|length }} agents
+                            </p>
+                        </div>
+                        <div id="control-panel" class="flex items-center gap-2">
+                            {% if simulation.status == 'running' %}
+                            <button 
+                                class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded" 
+                                hx-post="/api/simulations/{{ simulation.id }}/stop" 
+                                hx-target="#control-panel" 
+                                hx-swap="innerHTML">
+                                Stop
+                            </button>
+                            <span class="flex h-3 w-3 relative">
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                                <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+                            </span>
+                            {% else %}
+                            <button 
+                                class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded" 
+                                hx-post="/api/simulations/{{ simulation.id }}/start" 
+                                hx-target="#control-panel" 
+                                hx-swap="innerHTML">
+                                Start
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Posts Container -->
+                <div id="posts-container" class="space-y-4" 
+                     hx-get="/api/simulations/{{ simulation.id }}/posts" 
+                     hx-trigger="load, every 3s"
+                     hx-swap="innerHTML">
+                    <div class="text-center py-8 text-gray-500">Loading posts...</div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="w-72 shrink-0">
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 sticky top-20">
+                    <div class="p-4 border-b border-gray-200">
+                        <h2 class="font-semibold text-gray-900">Agents</h2>
+                    </div>
+                    <div id="agents-list" class="p-2 max-h-[60vh] overflow-y-auto"
+                         hx-get="/api/simulations/{{ simulation.id }}/agents" 
+                         hx-trigger="load, every 5s"
+                         hx-swap="innerHTML">
+                        <div class="text-center py-4 text-gray-500 text-sm">Loading agents...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agent Modal -->
+    <div id="agent-modal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 bg-black/50" onclick="closeAgentModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden relative">
+                <button onclick="closeAgentModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+                <div id="agent-modal-content" class="overflow-y-auto max-h-[90vh]">
+                    <!-- Content loaded via HTMX -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openAgentModal() {
+            document.getElementById('agent-modal').classList.remove('hidden');
+        }
+        function closeAgentModal() {
+            document.getElementById('agent-modal').classList.add('hidden');
+        }
+        
+        // Listen for HTMX events to open modal when agent content loads
+        document.body.addEventListener('htmx:afterSwap', function(evt) {
+            if (evt.detail.target.id === 'agent-modal-content') {
+                openAgentModal();
+            }
+        });
+        
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeAgentModal();
+        });
+        
+        // Markdown rendering helper
+        function renderMarkdown(content) {
+            return marked.parse(content);
+        }
+    </script>
+</body>
+</html>

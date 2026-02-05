@@ -21,6 +21,25 @@
         .markdown-body ol { list-style-type: decimal; padding-left: 1.25rem; margin-bottom: 0.75rem; }
         .markdown-body code { background-color: #f3f4f6; padding: 0.125rem 0.25rem; border-radius: 0.25rem; font-size: 0.875rem; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #db2777; }
         
+        /* Links in markdown content - make them clearly visible */
+        .markdown-body a { 
+            color: #4f46e5; 
+            text-decoration: underline; 
+            text-decoration-color: #a5b4fc;
+            text-underline-offset: 2px;
+            transition: all 0.15s ease;
+        }
+        .markdown-body a:hover { 
+            color: #4338ca; 
+            text-decoration-color: #4f46e5;
+            background-color: #eef2ff;
+            border-radius: 2px;
+        }
+        .markdown-body a:visited {
+            color: #7c3aed;
+            text-decoration-color: #c4b5fd;
+        }
+        
         /* Custom Scrollbar */
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }

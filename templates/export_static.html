@@ -20,6 +20,25 @@
         .markdown-content h2 { font-size: 1.25rem; }
         .markdown-content h3 { font-size: 1.1rem; }
         
+        /* Links in markdown content - make them clearly visible */
+        .markdown-content a { 
+            color: #4f46e5; 
+            text-decoration: underline; 
+            text-decoration-color: #a5b4fc;
+            text-underline-offset: 2px;
+            transition: all 0.15s ease;
+        }
+        .markdown-content a:hover { 
+            color: #4338ca; 
+            text-decoration-color: #4f46e5;
+            background-color: #eef2ff;
+            border-radius: 2px;
+        }
+        .markdown-content a:visited {
+            color: #7c3aed;
+            text-decoration-color: #c4b5fd;
+        }
+        
         /* Line clamp for card previews */
         .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
         

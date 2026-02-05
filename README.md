@@ -105,6 +105,37 @@ You can tweak settings in the UI by clicking the "Settings" button:
 *   **Max Loops**: Maximum simulation steps (default: 500).
 *   **API Key**: Update your OpenRouter API key.
 
+### Web Browsing Safety Modes
+
+Agents can browse the web to fetch factual information. Two safety modes are available:
+
+#### 1. Google Safe Browsing Mode (Default)
+Uses [Google Safe Browsing API](https://developers.google.com/safe-browsing) to check URL safety in real-time. This allows agents to browse any URL that isn't flagged as malware, phishing, or harmful content.
+
+To configure your API key (via environment variable or Settings UI):
+```bash
+# Get a free API key from Google Cloud Console:
+# https://console.cloud.google.com/apis/library/safebrowsing.googleapis.com
+
+export GOOGLE_SAFE_BROWSING_API_KEY="your-api-key-here"
+```
+
+The Safe Browsing API is free for up to 10,000 requests/day. If no API key is configured, the system automatically falls back to allowlist mode.
+
+#### 2. Allowlist Mode
+Only allows access to a curated list of trusted domains:
+- Wikipedia, arXiv, PubMed, Stanford Encyclopedia of Philosophy, WHO
+- Nature, Science journals
+- Reuters, AP News, BBC
+- Any `.gov` or `.edu` domain
+
+To use allowlist mode instead:
+```bash
+export WEB_BROWSE_SAFETY_MODE="allowlist"
+```
+
+You can also configure these settings in the UI by clicking the "Settings" button.
+
 ## Agent Behavior
 
 Each simulation step, a random agent is selected to:

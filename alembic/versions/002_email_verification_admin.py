@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '002_email_verification_admin'
-down_revision = '001_initial_multiuser_schema'
+down_revision = '001_initial'
 branch_labels = None
 depends_on = None
 

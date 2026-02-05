@@ -11,6 +11,8 @@ psycopg2-binary
 # Authentication
 python-jose[cryptography]
 passlib[bcrypt]
+email-validator
+argon2-cffi
 # Environment variables
 python-dotenv
 # Database migrations

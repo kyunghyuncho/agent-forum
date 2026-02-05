@@ -26,11 +26,12 @@ from services.settings_service import (
 )
 from services.email_service import EmailService, get_email_service
 
-# Import simulation module - we'll update this later for multi-user
-from simulation import simulation
+# Import simulation modules
+from simulation import simulation  # Legacy single-user
+from simulation_manager import simulation_manager  # Multi-user manager
 
-# --- Background Task ---
-def run_loop():
+# --- Background Task for Legacy Single-User Mode ---
+def run_legacy_loop():
     while True:
         try:
             simulation.step()
@@ -55,11 +56,17 @@ async def lifespan(app: FastAPI):
     finally:
         db.close()
     
-    # Start simulation thread (for legacy single-user mode)
-    sim_thread = threading.Thread(target=run_loop, daemon=True)
-    sim_thread.start()
+    # Start multi-user simulation manager
+    simulation_manager.start()
+    
+    # Start legacy simulation thread (for legacy single-user mode)
+    legacy_thread = threading.Thread(target=run_legacy_loop, daemon=True)
+    legacy_thread.start()
+    
     yield
-    # Cleanup if needed
+    
+    # Cleanup
+    simulation_manager.stop()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -360,6 +367,11 @@ async def api_register(
     db: Session = Depends(get_db)
 ):
     """Register a new user."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"Registration attempt: email={email}")
+    
     # Check if registration is allowed
     global_settings = db.query(GlobalSettings).first()
     if global_settings and not global_settings.allow_registration:
@@ -384,7 +396,10 @@ async def api_register(
     # Create user (first user is auto-verified and admin)
     user_data = UserCreate(email=email, password=password, display_name=display_name)
     is_first_user = db.query(User).count() == 0
+    logger.info(f"Creating user: is_first_user={is_first_user}, require_verification={require_verification}")
+    
     user = create_user(db, user_data, auto_verify=not require_verification or is_first_user)
+    logger.info(f"User created: id={user.id}, is_admin={user.is_admin}, is_verified={user.is_verified}")
     
     # Send verification email if required and not first user
     if require_verification and not is_first_user:
@@ -394,7 +409,8 @@ async def api_register(
         return RedirectResponse(url=f"/verify-pending?email={email}", status_code=status.HTTP_303_SEE_OTHER)
     
     # Create access token
-    access_token = create_access_token(data={"sub": user.id})
+    access_token = create_access_token(data={"sub": str(user.id)})
+    logger.info(f"Access token created for user {user.id}, redirecting to /dashboard")
     
     # Return response with cookie
     response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
@@ -439,7 +455,7 @@ async def api_login(
         )
     
     # Create access token
-    access_token = create_access_token(data={"sub": user.id})
+    access_token = create_access_token(data={"sub": str(user.id)})
     
     # Return response with cookie
     response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
@@ -816,12 +832,22 @@ async def read_root(
 ):
     """
     Root route - redirects to dashboard if logged in, 
-    otherwise shows legacy single-user interface.
+    otherwise redirects to login page.
     """
     if user:
         return RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
     
-    # Legacy single-user mode
+    return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
+
+
+@app.get("/legacy", response_class=HTMLResponse)
+async def legacy_mode(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Legacy single-user mode (accessible at /legacy for backward compatibility).
+    """
     thread = db.query(Thread).filter(Thread.simulation_id == None).first()
     topic = thread.title if thread else ""
     return templates.TemplateResponse("index.html", {

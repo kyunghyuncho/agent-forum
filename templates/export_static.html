@@ -101,8 +101,7 @@
                             </div>
                         </div>
                         
-                        <div class="markdown-content text-gray-800 text-sm leading-relaxed">
-                            {{ node.post.content }}
+                        <div class="markdown-content text-gray-800 text-sm leading-relaxed post-content" data-content="{{ node.post.content | e }}">
                         </div>
                     </div>
                 </div>
@@ -185,9 +184,13 @@
     <script>
         // Markdown Rendering
         const md = window.markdownit();
-        document.querySelectorAll('.markdown-content').forEach(el => {
-            // Trim whitespace to avoid weird initial newlines in code blocks if any
-            el.innerHTML = md.render(el.textContent.trim());
+        
+        // Render post content from data attributes
+        document.querySelectorAll('.post-content[data-content]').forEach(el => {
+            const content = el.getAttribute('data-content');
+            if (content) {
+                el.innerHTML = md.render(content);
+            }
         });
         
         // Render math equations using KaTeX (after markdown is processed)

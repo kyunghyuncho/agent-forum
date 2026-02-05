@@ -36,8 +36,8 @@
                 </div>
             </div>
             
-            <!-- Post Content -->
-            <div class="post-content-raw text-gray-700 text-sm leading-relaxed">{{ node.post.content }}</div>
+            <!-- Post Content - rendered as markdown -->
+            <div class="prose prose-sm max-w-none text-gray-700 leading-relaxed post-content" data-content="{{ node.post.content | e }}"></div>
             
         </div>
     </div>
@@ -58,3 +58,17 @@
         {{ render_node(node) }}
     {% endfor %}
 </div>
+
+<script>
+// Render markdown for all post content elements
+(function() {
+    if (typeof marked !== 'undefined') {
+        document.querySelectorAll('.post-content[data-content]').forEach(function(el) {
+            const content = el.getAttribute('data-content');
+            if (content) {
+                el.innerHTML = marked.parse(content);
+            }
+        });
+    }
+})();
+</script>

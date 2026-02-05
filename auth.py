@@ -4,6 +4,7 @@ Handles user registration, login, and JWT token management.
 """
 
 import os
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -17,6 +18,10 @@ from sqlalchemy.orm import Session
 from config import settings
 from database import get_db, User, UserSettings
 
+# Set up logging
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.DEBUG)
+
 # ============================================================================
 # Security Configuration
 # ============================================================================
@@ -25,7 +30,8 @@ SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Use argon2 (modern, no length limits) with bcrypt as fallback for old hashes
+pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 security = HTTPBearer(auto_error=False)
 
 
@@ -102,11 +108,14 @@ def decode_token(token: str) -> Optional[TokenData]:
     """Decode and validate a JWT token."""
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: int = payload.get("sub")
+        user_id = payload.get("sub")
         if user_id is None:
+            logger.debug("Token decode: no 'sub' in payload")
             return None
-        return TokenData(user_id=user_id)
-    except JWTError:
+        logger.debug(f"Token decode success: user_id={user_id}")
+        return TokenData(user_id=int(user_id))
+    except JWTError as e:
+        logger.debug(f"Token decode failed: {e}")
         return None
 
 
@@ -211,21 +220,29 @@ async def get_current_user(
     # Try to get token from Authorization header
     if credentials:
         token = credentials.credentials
+        logger.debug("Token from Authorization header")
     
     # Fallback to cookie
     if not token:
         token = request.cookies.get("access_token")
+        if token:
+            logger.debug("Token from cookie")
     
     if not token:
+        logger.debug("No token found in header or cookie")
         raise credentials_exception
     
     token_data = decode_token(token)
     if token_data is None:
+        logger.debug("Token decode returned None")
         raise credentials_exception
     
     user = get_user_by_id(db, token_data.user_id)
     if user is None:
+        logger.debug(f"User not found for id={token_data.user_id}")
         raise credentials_exception
+    
+    logger.debug(f"Authenticated user: id={user.id}, email={user.email}, is_active={user.is_active}")
     
     if not user.is_active:
         raise HTTPException(

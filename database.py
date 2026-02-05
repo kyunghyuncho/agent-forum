@@ -194,6 +194,57 @@ class SimulationState(Base):
 # Database Connection
 # ============================================================================
 
+def _ensure_database_exists():
+    """
+    Ensure the PostgreSQL database exists, create it if not.
+    For SQLite, the file is created automatically.
+    """
+    if not settings.DATABASE_URL.startswith("postgresql"):
+        return  # SQLite handles this automatically
+    
+    import re
+    from urllib.parse import urlparse
+    
+    # Parse the database URL
+    parsed = urlparse(settings.DATABASE_URL)
+    db_name = parsed.path.lstrip('/')
+    
+    if not db_name:
+        return
+    
+    # Connect to default 'postgres' database to create our database
+    # Build connection URL to 'postgres' database
+    base_url = settings.DATABASE_URL.rsplit('/', 1)[0] + '/postgres'
+    
+    try:
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.exc import ProgrammingError
+        
+        # Connect to postgres database
+        temp_engine = create_engine(base_url, isolation_level="AUTOCOMMIT")
+        
+        with temp_engine.connect() as conn:
+            # Check if database exists
+            result = conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :dbname"),
+                {"dbname": db_name}
+            )
+            exists = result.fetchone() is not None
+            
+            if not exists:
+                print(f"📦 Creating database '{db_name}'...")
+                conn.execute(text(f'CREATE DATABASE "{db_name}"'))
+                print(f"✅ Database '{db_name}' created!")
+            
+        temp_engine.dispose()
+    except Exception as e:
+        print(f"⚠️  Could not auto-create database: {e}")
+        print(f"   You may need to run: createdb {db_name}")
+
+
+# Ensure database exists before creating engine
+_ensure_database_exists()
+
 # Handle SQLite vs PostgreSQL connection args
 connect_args = {}
 if settings.DATABASE_URL.startswith("sqlite"):

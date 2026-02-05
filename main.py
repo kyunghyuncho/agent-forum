@@ -555,6 +555,14 @@ async def dashboard(
     db: Session = Depends(get_db)
 ):
     """User dashboard showing their simulations."""
+    
+    # Debug logging for API key persistence
+    import logging
+    logger = logging.getLogger(__name__)
+    key_status = "SET" if user.openrouter_api_key else "NOT SET" 
+    masked_key = f" (Len: {len(user.openrouter_api_key)})" if user.openrouter_api_key else ""
+    logger.info(f"Dashboard load - User {user.id} API Key: {key_status}{masked_key}")
+    
     simulations = db.query(Simulation).filter(Simulation.user_id == user.id).order_by(Simulation.created_at.desc()).all()
     user_settings = settings_service.get_user_settings(db, user.id)
     

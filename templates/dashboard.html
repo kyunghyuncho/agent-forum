@@ -221,13 +221,30 @@
                         <h3 class="text-sm font-medium text-gray-900 mb-3">API Configuration</h3>
                         <div class="space-y-3">
                             <div>
-                                <label class="block text-sm text-gray-600 mb-1">OpenRouter API Key</label>
+                                <div class="flex items-center justify-between mb-1">
+                                    <label class="block text-sm text-gray-600">OpenRouter API Key</label>
+                                    {% if user.openrouter_api_key %}
+                                    <span
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
+                                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M5 13l4 4L19 7"></path>
+                                        </svg>
+                                        Key Set
+                                    </span>
+                                    {% else %}
+                                    <span
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-700">
+                                        Using System Key
+                                    </span>
+                                    {% endif %}
+                                </div>
                                 <form hx-put="/api/auth/api-key" hx-swap="none"
-                                    hx-on::after-request="if(event.detail.successful) { this.querySelector('.save-btn').textContent = 'Saved!'; setTimeout(() => this.querySelector('.save-btn').textContent = 'Save', 2000); } else { alert('Failed to save API key'); }"
+                                    hx-on::after-request="if(event.detail.successful) { this.querySelector('.save-btn').textContent = 'Saved!'; setTimeout(() => { window.location.reload(); }, 1000); } else { alert('Failed to save API key'); }"
                                     class="flex gap-2">
                                     <input type="password" name="api_key"
                                         class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                                        placeholder="{{ '••••••••' if user.openrouter_api_key else 'Enter your API key' }}"
+                                        placeholder="{{ 'Enter new key to update' if user.openrouter_api_key else 'Enter your OpenRouter key' }}"
                                         required>
                                     <button type="submit"
                                         class="save-btn px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">

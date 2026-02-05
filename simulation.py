@@ -116,6 +116,29 @@ POOL_STYLE_DESCRIPTIONS = {
     "fun": "Create agents with entertaining personalities: witty commenters, meme enthusiasts, devil's advocates, friendly trolls, dramatic personalities, and comedians. They should be humorous, use casual language, make pop culture references, and keep the discussion lively and entertaining. Include some chaos!",
 }
 
+MOTHER_INTERVENTION_PROMPT = """You are the Simulation Controller (MOTHER). The discussion on **{TOPIC}** has stagnated - agents have been doing nothing for {IDLE_COUNT} consecutive turns.
+
+**Current Time:** {CURRENT_TIME}
+**Language:** {LANGUAGE}
+**Pool Style:** {POOL_STYLE}
+
+Recent posts in the discussion:
+{RECENT_POSTS}
+
+Your task: Revitalize the discussion. Choose ONE action:
+
+1. **INJECT_QUESTION**: Post a thought-provoking question or controversial statement to spark debate.
+2. **SPAWN_AGENT**: Create a new agent with a fresh, contrarian perspective to shake things up.
+3. **DO_NOTHING**: If the discussion has naturally concluded and intervention isn't needed.
+
+Output JSON:
+{{
+  "action": "INJECT_QUESTION" | "SPAWN_AGENT" | "DO_NOTHING",
+  "content": (string, the question/statement to post if INJECT_QUESTION, null otherwise),
+  "agent_data": (object with name, filename, agent_md_content if SPAWN_AGENT, null otherwise),
+  "reason": (brief explanation of your choice)
+}}"""
+
 DECISION_PROMPT = """**Context:**
 You are {AGENT_NAME}.
 
@@ -155,11 +178,12 @@ WEB_OPTIONS_TEXT = """4. **SEARCH**: Search the web for information.
    - You'll receive search results with URLs that you can then BROWSE.
 5. **BROWSE**: Look up a specific web page.
    - Use this when you have a URL (e.g., from search results) or know a reliable source.
-   - Allowed sources: {ALLOWED_SOURCES}.
-   - Great for citing Wikipedia, research papers, or news articles to support your arguments.
+   - {ALLOWED_SOURCES}
+   - Great for citing sources to support your arguments.
 
 **Note:** You can only perform ONE web action (SEARCH or BROWSE) per turn. After receiving results, you can POST or take another action.
 **Pro tip:** Using SEARCH or BROWSE to cite sources makes your posts more credible and interesting!
+**IMPORTANT:** When you POST after using SEARCH or BROWSE, ALWAYS include hyperlinks to your sources using Markdown format: [link text](URL). This helps others verify your claims and find more information.
 """
 
 WEB_FIELDS_TEXT = """
@@ -272,7 +296,9 @@ class Agent:
         return response
 
 class Mother:
-    def spawn_agents(self, topic, n=settings.DEFAULT_AGENT_COUNT, retries=3, language="English", pool_style="professional"):
+    def spawn_agents(self, topic, n=None, retries=3, language="English", pool_style="professional"):
+        if n is None:
+            n = settings.DEFAULT_AGENT_COUNT
         logger.info(f"Spawning {n} agents for topic: {topic} (Language: {language}, Style: {pool_style})")
         current_time = datetime.now().strftime("%y/%m/%d %H:%M:%S")
         pool_style_description = POOL_STYLE_DESCRIPTIONS.get(pool_style, POOL_STYLE_DESCRIPTIONS["professional"])
@@ -342,17 +368,91 @@ class Mother:
         with open(os.path.join(path, "TEMP.md"), "w", encoding='utf-8') as f:
             f.write("")
 
+    def intervene(self, topic: str, idle_count: int, language: str = "English", pool_style: str = "professional"):
+        """
+        MOTHER intervenes when the discussion stagnates.
+        Can inject a provocative question or spawn a new agent.
+        """
+        logger.info(f"MOTHER intervening after {idle_count} idle turns")
+        
+        db = SessionLocal()
+        try:
+            # Get recent posts for context
+            recent_posts = db.query(Post).order_by(Post.created_at.desc()).limit(10).all()
+            recent_posts_text = ""
+            for p in reversed(recent_posts):
+                recent_posts_text += f"**{p.agent_name}:** {p.content[:200]}...\n\n"
+            
+            if not recent_posts_text:
+                recent_posts_text = "(No posts yet)"
+            
+            current_time = datetime.now().strftime("%y/%m/%d %H:%M:%S")
+            prompt = MOTHER_INTERVENTION_PROMPT.format(
+                TOPIC=topic,
+                IDLE_COUNT=idle_count,
+                CURRENT_TIME=current_time,
+                LANGUAGE=language,
+                POOL_STYLE=pool_style.upper(),
+                RECENT_POSTS=recent_posts_text,
+            )
+            
+            messages = [{"role": "user", "content": prompt}]
+            response = llm_client.get_json_response(messages)
+            
+            if not response:
+                logger.warning("MOTHER intervention failed - no response")
+                return False
+            
+            action = response.get("action")
+            reason = response.get("reason", "")
+            logger.info(f"MOTHER decided to {action}: {reason}")
+            
+            if action == "INJECT_QUESTION":
+                content = response.get("content")
+                if content:
+                    thread = db.query(Thread).first()
+                    if thread:
+                        post = Post(
+                            thread_id=thread.id,
+                            agent_name="MOTHER",
+                            content=f"*[MOTHER intervenes to stimulate discussion]*\n\n{content}",
+                            likes=0
+                        )
+                        db.add(post)
+                        db.commit()
+                        logger.info("MOTHER injected a question to spark discussion")
+                        return True
+                        
+            elif action == "SPAWN_AGENT":
+                agent_data = response.get("agent_data")
+                if agent_data:
+                    self.create_agent_files(agent_data)
+                    agent_name = agent_data.get("name", "Unknown")
+                    logger.info(f"MOTHER spawned new agent: {agent_name}")
+                    return True
+            
+            # DO_NOTHING or failed
+            return False
+            
+        except Exception as e:
+            logger.exception(f"MOTHER intervention error: {e}")
+            return False
+        finally:
+            db.close()
+
 class Simulation:
     def __init__(self):
         self.mother = Mother()
         self.running = False
         self.topic = "General AI Discussion"
         self.language = "English"
+        self.consecutive_idle_count = 0  # Track consecutive DO_NOTHING actions
 
     def start_simulation(self, topic):
         self.topic = topic
         self.language = detect_language(topic)
         self.running = True
+        self.consecutive_idle_count = 0  # Reset idle count on start
         logger.info(f"Starting simulation on topic: {topic} (Detected language: {self.language})")
         
         # Initialize DB Thread if needed
@@ -370,7 +470,7 @@ class Simulation:
              os.makedirs(agents_dir)
              
         if not os.listdir(agents_dir):
-             self.mother.spawn_agents(topic, language=self.language, pool_style=settings.AGENT_POOL_STYLE)
+             self.mother.spawn_agents(topic, n=settings.DEFAULT_AGENT_COUNT, language=self.language, pool_style=settings.AGENT_POOL_STYLE)
 
     def stop_simulation(self):
         self.running = False
@@ -394,7 +494,7 @@ class Simulation:
             logger.warning(f"Agent {agent.name} search failed: {result['error']}")
         
         # Add explicit notice that search was completed
-        search_context += "\n\n---\n**[SYSTEM] You have completed your SEARCH action for this turn. You may now BROWSE one of the URLs above, POST your response, or take another action. You cannot SEARCH again this turn.**\n---\n"
+        search_context += "\n\n---\n**[SYSTEM] You have completed your SEARCH action for this turn. You may now BROWSE one of the URLs above, POST your response, or take another action. You cannot SEARCH again this turn.**\n**REMINDER: When you POST, COPY the 'Ready-to-use link' from the search results directly into your post! Example: [Article Title](https://example.com/article)**\n---\n"
         
         # Append search results to TEMP.md
         current_temp = agent.read_file(agent.temp_md_path)
@@ -443,7 +543,7 @@ class Simulation:
             logger.warning(f"Agent {agent.name} failed to browse {url}: {result['error']}")
         
         # Add explicit notice that browse was completed
-        browse_context += "\n\n---\n**[SYSTEM] You have completed your web action for this turn. You should now POST your response using the information above, or take another non-web action. You cannot SEARCH or BROWSE again this turn.**\n---\n"
+        browse_context += "\n\n---\n**[SYSTEM] You have completed your web action for this turn. You should now POST your response using the information above, or take another non-web action. You cannot SEARCH or BROWSE again this turn.**\n**REMINDER: Include a hyperlink to the source in your POST using Markdown: [title](" + url + ")**\n---\n"
         
         # Append browse result to TEMP.md
         current_temp = agent.read_file(agent.temp_md_path)
@@ -543,13 +643,34 @@ class Simulation:
                 logger.warning(f"Agent {agent.name} tried to {action} but web browsing is disabled.")
                 action = "DO_NOTHING"
             
-            # 5. Execute final action
+            # 5. Track idle count and potentially trigger MOTHER intervention
+            if action == "DO_NOTHING":
+                self.consecutive_idle_count += 1
+                logger.info(f"Idle count: {self.consecutive_idle_count}")
+                
+                # Check if MOTHER should intervene
+                threshold = getattr(settings, 'MOTHER_INTERVENTION_THRESHOLD', 5)
+                if self.consecutive_idle_count >= threshold:
+                    logger.info(f"Idle threshold ({threshold}) reached, MOTHER considering intervention...")
+                    if self.mother.intervene(
+                        self.topic, 
+                        self.consecutive_idle_count, 
+                        self.language, 
+                        settings.AGENT_POOL_STYLE
+                    ):
+                        # Reset idle count after successful intervention
+                        self.consecutive_idle_count = 0
+            else:
+                # Reset idle count on any non-idle action
+                self.consecutive_idle_count = 0
+            
+            # 6. Execute final action
             if action == "POST":
                 self._handle_post(agent, decision, db)
             elif action == "LEAVE":
                 self._handle_leave(agent)
             
-            # 6. Handle likes
+            # 7. Handle likes
             like_id = decision.get("like_post_id")
             if like_id:
                 post = db.query(Post).filter(Post.id == like_id).first()
@@ -557,7 +678,7 @@ class Simulation:
                     post.likes += 1
                     db.commit()
             
-            # 7. Update Memory
+            # 8. Update Memory
             new_memory = decision.get("updated_memory")
             if new_memory:
                 agent.write_file(agent.memory_md_path, new_memory)

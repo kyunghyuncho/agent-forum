@@ -50,7 +50,22 @@
                     <input type="checkbox" name="enable_web_browse" value="true" {% if settings.ENABLE_WEB_BROWSE %}checked{% endif %} class="mr-2">
                     <span class="text-gray-700 text-sm font-bold">Enable Web Browsing</span>
                 </label>
-                <p class="text-xs text-gray-500 mt-1">Allow agents to fetch pages from Wikipedia, arXiv, PubMed, and other trusted sources.</p>
+                <p class="text-xs text-gray-500 mt-1">Allow agents to fetch pages from the web.</p>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">URL Safety Mode</label>
+                <select name="web_browse_safety_mode" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline">
+                    <option value="allowlist" {% if settings.WEB_BROWSE_SAFETY_MODE == 'allowlist' %}selected{% endif %}>Allowlist - Only trusted domains (Wikipedia, arXiv, .gov, .edu, etc.)</option>
+                    <option value="safebrowsing" {% if settings.WEB_BROWSE_SAFETY_MODE == 'safebrowsing' %}selected{% endif %}>Safe Browsing - Any URL verified safe by Google</option>
+                </select>
+                <p class="text-xs text-gray-500 mt-1">Safe Browsing mode requires a Google API key below.</p>
+            </div>
+
+            <div class="mb-4">
+                <label class="block text-gray-700 text-sm font-bold mb-2">Google Safe Browsing API Key</label>
+                <input type="password" name="safe_browsing_api_key" value="{{ settings.GOOGLE_SAFE_BROWSING_API_KEY }}" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline" placeholder="AIza...">
+                <p class="text-xs text-gray-500 mt-1">Free key from <a href="https://console.cloud.google.com/apis/library/safebrowsing.googleapis.com" target="_blank" class="text-blue-500 hover:underline">Google Cloud Console</a> (10k requests/day free)</p>
             </div>
 
             <div id="settings-response" class="mb-4"></div>

@@ -132,7 +132,9 @@ async def update_settings(
     agent_count: int = Form(...),
     agent_pool_style: str = Form("professional"),
     api_key: str = Form(""),
-    enable_web_browse: str = Form("")
+    enable_web_browse: str = Form(""),
+    web_browse_safety_mode: str = Form("allowlist"),
+    safe_browsing_api_key: str = Form("")
 ):
     settings.MODEL_NAME = model_name
     settings.MAX_LOOPS = max_loops
@@ -140,11 +142,18 @@ async def update_settings(
     settings.DEFAULT_AGENT_COUNT = agent_count
     settings.AGENT_POOL_STYLE = agent_pool_style
     settings.ENABLE_WEB_BROWSE = enable_web_browse == "true"
+    settings.WEB_BROWSE_SAFETY_MODE = web_browse_safety_mode
+    if safe_browsing_api_key:
+        settings.GOOGLE_SAFE_BROWSING_API_KEY = safe_browsing_api_key
     if api_key:
         settings.OPENROUTER_API_KEY = api_key
         # Reinitialize LLM client with new key
         from llm_client import llm_client
         llm_client.reinitialize()
+    # Reinitialize web browser with new settings
+    from web_browser import web_browser
+    web_browser.safety_mode = settings.WEB_BROWSE_SAFETY_MODE
+    web_browser.safe_browsing_api_key = settings.GOOGLE_SAFE_BROWSING_API_KEY
     return HTMLResponse('<div class="p-4 text-green-600 bg-green-100 rounded">Settings Saved!</div>')
 
 # --- Export/Import ---

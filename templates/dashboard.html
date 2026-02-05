@@ -222,12 +222,15 @@
                         <div class="space-y-3">
                             <div>
                                 <label class="block text-sm text-gray-600 mb-1">OpenRouter API Key</label>
-                                <form hx-put="/api/auth/api-key" hx-swap="none" class="flex gap-2">
+                                <form hx-put="/api/auth/api-key" hx-swap="none"
+                                    hx-on::after-request="if(event.detail.successful) { this.querySelector('.save-btn').textContent = 'Saved!'; setTimeout(() => this.querySelector('.save-btn').textContent = 'Save', 2000); } else { alert('Failed to save API key'); }"
+                                    class="flex gap-2">
                                     <input type="password" name="api_key"
                                         class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                                        placeholder="{{ '••••••••' if user.openrouter_api_key else 'Enter your API key' }}">
+                                        placeholder="{{ '••••••••' if user.openrouter_api_key else 'Enter your API key' }}"
+                                        required>
                                     <button type="submit"
-                                        class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">
+                                        class="save-btn px-4 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">
                                         Save
                                     </button>
                                 </form>

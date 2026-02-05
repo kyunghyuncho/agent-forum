@@ -1,13 +1,39 @@
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file if it exists
+load_dotenv()
 
 class Settings:
-    DATABASE_URL = "sqlite:///./data/forum.db"
+    # Database - supports both SQLite (local dev) and PostgreSQL (production)
+    # Railway provides DATABASE_URL automatically
+    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/forum.db")
+    
+    # Handle Railway's postgres:// vs postgresql:// URL format
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    
+    # Authentication
+    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-please-change-in-production")
+    
+    # Security check: warn/fail if using default secret key in production
+    if SECRET_KEY == "dev-secret-key-please-change-in-production":
+        if os.getenv("RAILWAY_ENVIRONMENT"):
+            raise RuntimeError(
+                "SECURITY ERROR: You must set SECRET_KEY environment variable in production! "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+
+    ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
+    
+    # OpenRouter / LLM settings
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
     OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-    # Default model, can be overridden by user
+    
+    # Default model, can be overridden by user settings
     MODEL_NAME = "google/gemini-2.5-flash-lite-preview-09-2025" 
-    MAX_LOOPS = 500
-    DEFAULT_AGENT_COUNT = 10
+    MAX_LOOPS = 50
+    DEFAULT_AGENT_COUNT = 3
     MOTHER_LOOKBACK_K = 25
     LOOP_DELAY = 2.0
     

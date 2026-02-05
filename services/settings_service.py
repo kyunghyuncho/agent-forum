@@ -25,7 +25,6 @@ class UserSettingsUpdate(BaseModel):
     enable_web_browse: Optional[bool] = None
     web_browse_safety_mode: Optional[str] = None
     web_browse_timeout: Optional[int] = None
-    google_safe_browsing_api_key: Optional[str] = None
     theme: Optional[str] = None
     posts_per_page: Optional[int] = None
     auto_scroll: Optional[bool] = None
@@ -43,7 +42,6 @@ class UserSettingsResponse(BaseModel):
     enable_web_browse: bool
     web_browse_safety_mode: str
     web_browse_timeout: int
-    has_safe_browsing_key: bool
     theme: str
     posts_per_page: int
     auto_scroll: bool
@@ -143,7 +141,6 @@ class SettingsService:
             enable_web_browse=settings.enable_web_browse if settings.enable_web_browse is not None else True,
             web_browse_safety_mode=settings.web_browse_safety_mode or "safebrowsing",
             web_browse_timeout=settings.web_browse_timeout or 10,
-            has_safe_browsing_key=bool(settings.google_safe_browsing_api_key),
             theme=settings.theme or "light",
             posts_per_page=settings.posts_per_page or 50,
             auto_scroll=settings.auto_scroll if settings.auto_scroll is not None else True,
@@ -177,7 +174,6 @@ class SettingsService:
                 "web_browse_timeout": user_settings.web_browse_timeout,
                 "mother_intervention_threshold": user_settings.mother_intervention_threshold,
                 "mother_lookback_k": user_settings.mother_lookback_k,
-                "google_safe_browsing_api_key": user_settings.google_safe_browsing_api_key,
                 "openrouter_api_key": user.openrouter_api_key,
             }
         else:
@@ -192,7 +188,6 @@ class SettingsService:
                 "web_browse_timeout": user_settings.web_browse_timeout,
                 "mother_intervention_threshold": user_settings.mother_intervention_threshold,
                 "mother_lookback_k": user_settings.mother_lookback_k,
-                "google_safe_browsing_api_key": user_settings.google_safe_browsing_api_key,
                 "openrouter_api_key": user.openrouter_api_key,
             }
 

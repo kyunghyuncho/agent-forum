@@ -15,6 +15,15 @@ class Settings:
     
     # Authentication
     SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-please-change-in-production")
+    
+    # Security check: warn/fail if using default secret key in production
+    if SECRET_KEY == "dev-secret-key-please-change-in-production":
+        if os.getenv("RAILWAY_ENVIRONMENT"):
+            raise RuntimeError(
+                "SECURITY ERROR: You must set SECRET_KEY environment variable in production! "
+                "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+
     ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 1 week
     
     # OpenRouter / LLM settings

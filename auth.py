@@ -18,9 +18,10 @@ from sqlalchemy.orm import Session
 from config import settings
 from database import get_db, User, UserSettings
 
-# Set up logging
+# Set up logging (use DEBUG in development via LOG_LEVEL env var)
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.DEBUG)
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(level=getattr(logging, log_level, logging.INFO))
 
 # ============================================================================
 # Security Configuration

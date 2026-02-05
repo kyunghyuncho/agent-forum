@@ -9,6 +9,7 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/idiomorph@0.3.0/dist/idiomorph-ext.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -598,7 +599,8 @@
 
         // Create HTML for a single post
         function createPostHTML(post, hasReplies) {
-            const content = marked.parse(post.content);
+            // Sanitize markdown output to prevent XSS
+            const content = DOMPurify.sanitize(marked.parse(post.content));
             const toggleBtn = hasReplies ? `
                 <button id="toggle-${post.id}" onclick="togglePost(${post.id})" 
                         class="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors" 

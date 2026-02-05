@@ -3,6 +3,7 @@ import time
 import os
 import json
 import shutil
+import re
 from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -414,12 +415,14 @@ async def api_register(
     
     # Return response with cookie
     response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+    is_production = os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("SECRET_KEY", "").startswith("dev-") == False
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         max_age=60 * 60 * 24 * 7,  # 1 week
-        samesite="lax"
+        samesite="lax",
+        secure=is_production  # Only send cookie over HTTPS in production
     )
     return response
 
@@ -459,12 +462,14 @@ async def api_login(
     
     # Return response with cookie
     response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
+    is_production = os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("SECRET_KEY", "").startswith("dev-") == False
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         max_age=60 * 60 * 24 * 7,  # 1 week
-        samesite="lax"
+        samesite="lax",
+        secure=is_production  # Only send cookie over HTTPS in production
     )
     return response
 
@@ -1053,7 +1058,11 @@ async def legacy_mode(
     })
 
 @app.post("/start")
-async def start_simulation(topic: str = Form(...), db: Session = Depends(get_db)):
+async def start_simulation_legacy(
+    topic: str = Form(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)  # Require authentication
+):
     simulation.start_simulation(topic)
     return HTMLResponse(content=f'''
         <div id="control-panel" class="flex items-center gap-2">
@@ -1072,7 +1081,7 @@ async def start_simulation(topic: str = Form(...), db: Session = Depends(get_db)
     ''')
 
 @app.post("/stop")
-async def stop_simulation():
+async def stop_simulation_legacy(user: User = Depends(get_current_user)):  # Require authentication
     simulation.stop_simulation()
     
     # Return the start button form
@@ -1096,7 +1105,10 @@ async def stop_simulation():
     ''') 
 
 @app.post("/reset")
-async def reset_simulation(db: Session = Depends(get_db)):
+async def reset_simulation(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)  # Require authentication
+):
     simulation.stop_simulation()
     
     # 1. Clear Database
@@ -1137,7 +1149,8 @@ async def update_settings(
     api_key: str = Form(""),
     enable_web_browse: str = Form(""),
     web_browse_safety_mode: str = Form("allowlist"),
-    safe_browsing_api_key: str = Form("")
+    safe_browsing_api_key: str = Form(""),
+    user: User = Depends(get_current_user)  # Require authentication
 ):
     settings.MODEL_NAME = model_name
     settings.MAX_LOOPS = max_loops
@@ -1161,7 +1174,10 @@ async def update_settings(
 
 # --- Export/Import ---
 @app.get("/export/json")
-async def export_json(db: Session = Depends(get_db)):
+async def export_json(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)  # Require authentication
+):
     # Gather all data
     threads = db.query(Thread).all()
     posts = db.query(Post).all()
@@ -1199,7 +1215,11 @@ async def export_json(db: Session = Depends(get_db)):
     return export_data
 
 @app.post("/import/json")
-async def import_json(file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def import_json(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user)  # Require authentication
+):
     # 1. Stop simulation
     simulation.stop_simulation()
     
@@ -1358,6 +1378,10 @@ async def get_agents_list(request: Request):
 
 @app.get("/agent/{name}", response_class=HTMLResponse)
 async def get_agent_details(request: Request, name: str):
+    # Security: validate agent name to prevent path traversal
+    if not re.match(r'^[a-zA-Z0-9_-]+$', name):
+        raise HTTPException(status_code=400, detail="Invalid agent name")
+    
     # Read files
     try:
         path = os.path.join("agents", "active", name)

@@ -1,193 +1,784 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ simulation.topic }} - LocalBBS</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://unpkg.com/idiomorph@0.3.0/dist/idiomorph-ext.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+
     <style>
+        /* ========================================
+           Design System - Custom Properties
+           ======================================== */
+        :root {
+            --color-primary: #6366f1;
+            --color-primary-dark: #4f46e5;
+            --color-success: #10b981;
+            --color-danger: #ef4444;
+            --color-warning: #f59e0b;
+            --shadow-soft: 0 2px 8px -2px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+            --shadow-medium: 0 4px 12px -2px rgba(0, 0, 0, 0.12), 0 4px 8px -2px rgba(0, 0, 0, 0.08);
+        }
+
+        /* Full-height app layout */
+        html,
+        body {
+            height: 100%;
+            overflow: hidden;
+        }
+
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .app-main {
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+        }
+
+        /* Smooth scrolling */
+        .scroll-container {
+            scroll-behavior: smooth;
+        }
+
+        /* Custom scrollbar */
+        .scroll-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .scroll-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .scroll-container::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 3px;
+        }
+
+        .scroll-container::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
+        }
+
+        /* Fade in animation for new posts */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .animate-fade-in {
+            animation: fadeInUp 0.3s ease-out;
+        }
+
+        /* Status pulse */
+        @keyframes statusPulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .status-running {
+            animation: statusPulse 2s ease-in-out infinite;
+        }
+
         /* Prose/Markdown styling */
-        .prose { max-width: none; }
-        .prose p { margin: 0.5em 0; line-height: 1.6; }
-        .prose blockquote { 
-            border-left: 3px solid #6366f1; 
-            background-color: #f8fafc; 
-            padding: 0.5rem 0.75rem; 
-            color: #4b5563; 
-            font-style: italic; 
-            border-radius: 0 0.375rem 0.375rem 0; 
-            margin: 0.5em 0; 
+        .prose {
+            max-width: none;
+            font-size: 0.9375rem;
+            line-height: 1.65;
         }
-        .prose a { color: #4f46e5; text-decoration: underline; }
-        .prose a:hover { color: #4338ca; background-color: #eef2ff; border-radius: 2px; }
-        .prose code { 
-            background: #f3f4f6; 
-            padding: 0.2em 0.4em; 
-            border-radius: 0.25em; 
-            font-size: 0.875em; 
+
+        .prose p {
+            margin: 0.4em 0;
+        }
+
+        .prose blockquote {
+            border-left: 3px solid var(--color-primary);
+            background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+            padding: 0.75rem 1rem;
+            color: #475569;
+            font-style: italic;
+            border-radius: 0 8px 8px 0;
+            margin: 0.5em 0;
+        }
+
+        .prose a {
+            color: var(--color-primary);
+            text-decoration: none;
+            font-weight: 500;
+        }
+
+        .prose a:hover {
+            text-decoration: underline;
+        }
+
+        .prose code {
+            background: #f1f5f9;
+            padding: 0.15em 0.4em;
+            border-radius: 4px;
+            font-size: 0.85em;
             font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-            color: #db2777;
+            color: #be185d;
         }
-        .prose pre { 
-            background: #1f2937; 
-            color: #e5e7eb; 
-            padding: 1em; 
-            border-radius: 0.5em; 
-            overflow-x: auto; 
+
+        .prose pre {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            color: #e2e8f0;
+            padding: 1rem;
+            border-radius: 10px;
+            overflow-x: auto;
+            margin: 0.75em 0;
+            box-shadow: var(--shadow-soft);
+        }
+
+        .prose pre code {
+            background: transparent;
+            color: inherit;
+            padding: 0;
+        }
+
+        .prose h1,
+        .prose h2,
+        .prose h3 {
+            font-weight: 600;
+            margin-top: 0.75em;
+            margin-bottom: 0.4em;
+            color: #1e293b;
+        }
+
+        .prose h1 {
+            font-size: 1.35em;
+        }
+
+        .prose h2 {
+            font-size: 1.2em;
+        }
+
+        .prose h3 {
+            font-size: 1.05em;
+        }
+
+        .prose ul {
+            list-style-type: disc;
+            padding-left: 1.5rem;
+            margin: 0.5em 0;
+        }
+
+        .prose ol {
+            list-style-type: decimal;
+            padding-left: 1.5rem;
+            margin: 0.5em 0;
+        }
+
+        .prose li {
+            margin: 0.2em 0;
+        }
+
+        .prose strong {
+            font-weight: 600;
+            color: #1e293b;
+        }
+
+        .prose table {
+            border-collapse: collapse;
+            width: 100%;
             margin: 0.75em 0;
         }
-        .prose pre code { 
-            background: transparent; 
-            color: inherit; 
-            padding: 0; 
+
+        .prose th,
+        .prose td {
+            border: 1px solid #e2e8f0;
+            padding: 0.5em 0.75em;
+            text-align: left;
         }
-        .prose h1, .prose h2, .prose h3 { 
-            font-weight: 600; 
-            margin-top: 1em; 
-            margin-bottom: 0.5em; 
-            color: #1f2937; 
+
+        .prose th {
+            background: #f8fafc;
+            font-weight: 600;
         }
-        .prose h1 { font-size: 1.5em; }
-        .prose h2 { font-size: 1.25em; }
-        .prose h3 { font-size: 1.1em; }
-        .prose ul { list-style-type: disc; padding-left: 1.25rem; margin: 0.5em 0; }
-        .prose ol { list-style-type: decimal; padding-left: 1.25rem; margin: 0.5em 0; }
-        .prose li { margin: 0.25em 0; }
-        .prose strong { font-weight: 600; color: #1f2937; }
-        .prose em { font-style: italic; }
-        .prose hr { border-color: #e5e7eb; margin: 1em 0; }
-        .prose table { border-collapse: collapse; width: 100%; margin: 0.75em 0; }
-        .prose th, .prose td { border: 1px solid #e5e7eb; padding: 0.5em; text-align: left; }
-        .prose th { background: #f9fafb; font-weight: 600; }
+
+        /* Agent avatars with unique colors */
+        .avatar-gradient-1 {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        }
+
+        .avatar-gradient-2 {
+            background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%);
+        }
+
+        .avatar-gradient-3 {
+            background: linear-gradient(135deg, #14b8a6 0%, #10b981 100%);
+        }
+
+        .avatar-gradient-4 {
+            background: linear-gradient(135deg, #f97316 0%, #f59e0b 100%);
+        }
+
+        .avatar-gradient-5 {
+            background: linear-gradient(135deg, #3b82f6 0%, #0ea5e9 100%);
+        }
+
+        .avatar-gradient-6 {
+            background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%);
+        }
     </style>
 </head>
-<body class="min-h-screen bg-gray-50">
-    <!-- Navigation -->
-    <nav class="bg-white border-b border-gray-200 sticky top-0 z-40">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between h-14">
-                <div class="flex items-center gap-4">
-                    <a href="/dashboard" class="text-gray-500 hover:text-gray-700">
+
+<body class="font-sans bg-slate-50 text-slate-900">
+    <div class="app-container">
+        <!-- ========================================
+             Top Navigation Bar
+             ======================================== -->
+        <header class="bg-white border-b border-slate-200 shrink-0 z-40">
+            <div class="h-14 px-4 lg:px-6 flex items-center justify-between">
+                <!-- Left: Back + Logo -->
+                <div class="flex items-center gap-3">
+                    <a href="/dashboard"
+                        class="p-2 -ml-2 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
                         </svg>
                     </a>
-                    <a href="/dashboard" class="text-lg font-bold text-indigo-600">LocalBBS</a>
+                    <div class="h-6 w-px bg-slate-200"></div>
+                    <a href="/dashboard" class="font-bold text-indigo-600 text-lg">LocalBBS</a>
                 </div>
-                <div class="flex items-center gap-4">
-                    <span class="text-gray-600">{{ user.display_name or user.email }}</span>
+
+                <!-- Right: User -->
+                <div class="flex items-center gap-3">
+                    <span class="text-sm text-slate-600 hidden sm:block">{{ user.display_name or user.email }}</span>
+                    <div
+                        class="h-8 w-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold shadow-sm">
+                        {{ (user.display_name or user.email)[:2].upper() }}
+                    </div>
                 </div>
             </div>
-        </div>
-    </nav>
+        </header>
 
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        <div class="flex gap-6">
-            <!-- Main Content -->
-            <div class="flex-1">
-                <!-- Header -->
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h1 class="text-xl font-bold text-gray-900">{{ simulation.topic }}</h1>
-                            <p class="text-sm text-gray-500 mt-1">
-                                {{ simulation.language }} • {{ simulation.pool_style|title }} • {{ simulation.agents|length }} agents
-                            </p>
-                        </div>
-                        <div id="control-panel" class="flex items-center gap-2">
-                            {% if simulation.status == 'running' %}
-                            <button 
-                                class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded" 
-                                hx-post="/api/simulations/{{ simulation.id }}/stop" 
-                                hx-target="#control-panel" 
-                                hx-swap="innerHTML">
-                                Stop
-                            </button>
-                            <span class="flex h-3 w-3 relative">
-                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                                <span class="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
+        <!-- ========================================
+             Simulation Header Bar
+             ======================================== -->
+        <div class="bg-white border-b border-slate-200 shrink-0 px-4 lg:px-6 py-3">
+            <div class="flex items-center justify-between gap-4">
+                <!-- Left: Title + Meta -->
+                <div class="min-w-0 flex-1">
+                    <h1 class="text-lg font-semibold text-slate-900 truncate">{{ simulation.topic }}</h1>
+                    <div class="flex items-center gap-2 mt-0.5">
+                        <span class="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            {{ simulation.agents|length }} agents
+                        </span>
+                        <span class="text-slate-300">•</span>
+                        <span class="text-xs text-slate-500">{{ simulation.language }}</span>
+                        <span class="text-slate-300">•</span>
+                        <span class="text-xs text-slate-500">{{ simulation.pool_style|title }}</span>
+                    </div>
+                </div>
+
+                <!-- Right: Controls -->
+                <div class="flex items-center gap-2">
+                    <!-- Status Indicator -->
+                    <div id="control-panel" class="flex items-center gap-2">
+                        {% if simulation.status == 'running' %}
+                        <div
+                            class="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-700 rounded-full text-sm font-medium">
+                            <span class="relative flex h-2 w-2">
+                                <span
+                                    class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                             </span>
-                            {% else %}
-                            <button 
-                                class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded" 
-                                hx-post="/api/simulations/{{ simulation.id }}/start" 
-                                hx-target="#control-panel" 
-                                hx-swap="innerHTML">
-                                Start
-                            </button>
-                            {% endif %}
+                            Running
                         </div>
+                        <button
+                            class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-medium rounded-lg transition-colors"
+                            hx-post="/api/simulations/{{ simulation.id }}/stop" hx-target="#control-panel"
+                            hx-swap="innerHTML">
+                            Stop
+                        </button>
+                        {% else %}
+                        <div
+                            class="flex items-center gap-2 px-3 py-1.5 bg-slate-100 text-slate-500 rounded-full text-sm font-medium">
+                            <span class="h-2 w-2 rounded-full bg-slate-400"></span>
+                            Stopped
+                        </div>
+                        <button
+                            class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors shadow-sm"
+                            hx-post="/api/simulations/{{ simulation.id }}/start" hx-target="#control-panel"
+                            hx-swap="innerHTML">
+                            Start
+                        </button>
+                        {% endif %}
                     </div>
-                </div>
 
-                <!-- Posts Container -->
-                <div id="posts-container" class="space-y-4" 
-                     hx-get="/api/simulations/{{ simulation.id }}/posts" 
-                     hx-trigger="load, every 3s"
-                     hx-swap="innerHTML">
-                    <div class="text-center py-8 text-gray-500">Loading posts...</div>
-                </div>
-            </div>
+                    <div class="h-6 w-px bg-slate-200 mx-1"></div>
 
-            <!-- Sidebar -->
-            <div class="w-72 shrink-0">
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 sticky top-20">
-                    <div class="p-4 border-b border-gray-200">
-                        <h2 class="font-semibold text-gray-900">Agents</h2>
-                    </div>
-                    <div id="agents-list" class="p-2 max-h-[60vh] overflow-y-auto"
-                         hx-get="/api/simulations/{{ simulation.id }}/agents" 
-                         hx-trigger="load, every 5s"
-                         hx-swap="innerHTML">
-                        <div class="text-center py-4 text-gray-500 text-sm">Loading agents...</div>
+                    <!-- Auto-scroll Toggle -->
+                    <button id="auto-scroll-btn" onclick="toggleAutoScroll()"
+                        class="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg transition-all bg-indigo-100 text-indigo-600 hover:bg-indigo-200"
+                        title="Auto-scroll to new posts">
+                        <svg id="auto-scroll-icon" class="w-4 h-4" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                        </svg>
+                        <span class="hidden sm:inline">Auto</span>
+                    </button>
+
+                    <!-- Export Dropdown -->
+                    <div class="relative" id="export-dropdown">
+                        <button onclick="toggleExportDropdown()"
+                            class="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <span class="hidden sm:inline">Export</span>
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        <div id="export-menu"
+                            class="absolute right-0 mt-2 w-44 bg-white rounded-xl shadow-lg border border-slate-200 py-1.5 hidden z-50">
+                            <a href="/api/simulations/{{ simulation.id }}/export/json"
+                                class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                Download JSON
+                            </a>
+                            <a href="/api/simulations/{{ simulation.id }}/export/html" target="_blank"
+                                class="flex items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-indigo-50 hover:text-indigo-600 transition-colors">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                                Export HTML
+                            </a>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- ========================================
+             Main Content Area
+             ======================================== -->
+        <main class="app-main">
+            <!-- Posts Section -->
+            <div class="flex-1 flex flex-col min-w-0">
+                <div id="posts-container" class="flex-1 overflow-y-auto scroll-container p-4 lg:p-6">
+                    <!-- Initial loading state - will be replaced by JS -->
+                    <div id="posts-loading" class="flex items-center justify-center h-full">
+                        <div class="text-center">
+                            <div
+                                class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-slate-100 mb-3">
+                                <svg class="w-6 h-6 text-slate-400 animate-spin" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                            </div>
+                            <p class="text-slate-500 text-sm">Loading discussion...</p>
+                        </div>
+                    </div>
+                    <!-- Posts will be appended here -->
+                    <div id="posts-list" class="space-y-4 pb-6"></div>
+                </div>
+            </div>
+
+            <!-- Agents Sidebar -->
+            <aside class="w-72 lg:w-80 border-l border-slate-200 bg-white shrink-0 hidden md:flex flex-col">
+                <div class="p-4 border-b border-slate-200">
+                    <h2 class="font-semibold text-slate-900 flex items-center gap-2">
+                        <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        Participants
+                    </h2>
+                </div>
+                <div id="agents-list" class="flex-1 overflow-y-auto scroll-container p-3" hx-ext="morph"
+                    hx-get="/api/simulations/{{ simulation.id }}/agents" hx-trigger="load, every 5s"
+                    hx-swap="morph:innerHTML">
+                    <div class="flex items-center justify-center py-8">
+                        <div class="w-5 h-5 border-2 border-slate-200 border-t-indigo-500 rounded-full animate-spin">
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
     </div>
 
-    <!-- Agent Modal -->
+    <!-- ========================================
+         Agent Detail Modal
+         ======================================== -->
     <div id="agent-modal" class="fixed inset-0 z-50 hidden">
-        <div class="absolute inset-0 bg-black/50" onclick="closeAgentModal()"></div>
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onclick="closeAgentModal()"></div>
         <div class="absolute inset-0 flex items-center justify-center p-4">
-            <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-hidden relative">
-                <button onclick="closeAgentModal()" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden relative">
+                <button onclick="closeAgentModal()"
+                    class="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors z-10">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
-                <div id="agent-modal-content" class="overflow-y-auto max-h-[90vh]">
+                <div id="agent-modal-content" class="overflow-y-auto max-h-[85vh]">
                     <!-- Content loaded via HTMX -->
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- ========================================
+         JavaScript
+         ======================================== -->
     <script>
+        // ========================================
+        // Auto-scroll State Management
+        // ========================================
+        let autoScrollEnabled = true;  // Sticky toggle - when on, always follows new posts
+
+        function getPostsContainer() {
+            return document.getElementById('posts-container');
+        }
+
+        function toggleAutoScroll() {
+            autoScrollEnabled = !autoScrollEnabled;
+            updateAutoScrollButton();
+            if (autoScrollEnabled) {
+                scrollToBottom();
+            }
+        }
+
+        function updateAutoScrollButton() {
+            const btn = document.getElementById('auto-scroll-btn');
+            if (!btn) return;
+
+            if (autoScrollEnabled) {
+                btn.classList.remove('bg-slate-100', 'text-slate-600');
+                btn.classList.add('bg-indigo-100', 'text-indigo-600');
+                btn.title = 'Auto-scroll: ON (click to disable)';
+            } else {
+                btn.classList.remove('bg-indigo-100', 'text-indigo-600');
+                btn.classList.add('bg-slate-100', 'text-slate-600');
+                btn.title = 'Auto-scroll: OFF (click to enable)';
+            }
+        }
+
+        function scrollToBottom() {
+            const container = getPostsContainer();
+            if (container && autoScrollEnabled) {
+                container.scrollTo({
+                    top: container.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }
+        }
+
+        // Initialize button state on load
+        document.addEventListener('DOMContentLoaded', function () {
+            updateAutoScrollButton();
+        });
+
+        // ========================================
+        // Agent Modal
+        // ========================================
         function openAgentModal() {
             document.getElementById('agent-modal').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
         }
         function closeAgentModal() {
             document.getElementById('agent-modal').classList.add('hidden');
+            document.body.style.overflow = '';
         }
-        
-        // Listen for HTMX events to open modal when agent content loads
-        document.body.addEventListener('htmx:afterSwap', function(evt) {
+
+        // ========================================
+        // Export Dropdown
+        // ========================================
+        function toggleExportDropdown() {
+            const menu = document.getElementById('export-menu');
+            menu.classList.toggle('hidden');
+        }
+
+        document.addEventListener('click', function (e) {
+            const dropdown = document.getElementById('export-dropdown');
+            const menu = document.getElementById('export-menu');
+            if (dropdown && !dropdown.contains(e.target)) {
+                menu.classList.add('hidden');
+            }
+        });
+
+        // Posts Polling System (Threaded View)
+        // ========================================
+        const SIMULATION_ID = {{ simulation.id }};
+        let postsPollingInterval = null;
+        let lastPostCount = -1;  // Track post count to detect changes
+        let allPosts = [];  // Store all posts
+
+        // Avatar gradient colors
+        const gradients = [
+            'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+            'linear-gradient(135deg, #ec4899 0%, #f43f5e 100%)',
+            'linear-gradient(135deg, #14b8a6 0%, #10b981 100%)',
+            'linear-gradient(135deg, #f97316 0%, #f59e0b 100%)',
+            'linear-gradient(135deg, #3b82f6 0%, #0ea5e9 100%)',
+            'linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%)'
+        ];
+
+        function getGradient(name) {
+            return gradients[name.length % gradients.length];
+        }
+
+        function formatTime(isoString) {
+            const date = new Date(isoString);
+            return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+        }
+
+        // Build tree structure from flat posts
+        function buildPostTree(posts) {
+            const postMap = {};
+            const rootNodes = [];
+
+            // Create map
+            posts.forEach(p => {
+                postMap[p.id] = { post: p, children: [] };
+            });
+
+            // Build tree
+            posts.forEach(p => {
+                const node = postMap[p.id];
+                if (p.parent_id && postMap[p.parent_id]) {
+                    postMap[p.parent_id].children.push(node);
+                } else {
+                    rootNodes.push(node);
+                }
+            });
+
+            return rootNodes;
+        }
+
+        // Create HTML for a single post
+        function createPostHTML(post, hasReplies) {
+            const content = marked.parse(post.content);
+            const toggleBtn = hasReplies ? `
+                <button id="toggle-${post.id}" onclick="togglePost(${post.id})" 
+                        class="p-1 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors" 
+                        title="Toggle replies">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                    </svg>
+                </button>
+            ` : '';
+
+            return `
+                <div id="card-${post.id}" 
+                     class="group bg-white rounded-xl border border-slate-200 p-4 mb-3 hover:border-slate-300 hover:shadow-md transition-all duration-200">
+                    <div class="flex gap-3">
+                        <div class="shrink-0">
+                            <div class="h-9 w-9 rounded-full flex items-center justify-center text-white font-semibold text-xs shadow-sm ring-2 ring-white"
+                                 style="background: ${getGradient(post.agent_name)};">
+                                ${post.agent_name.slice(0, 2).toUpperCase()}
+                            </div>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center justify-between gap-2 mb-1.5">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <span class="font-semibold text-slate-900 truncate">${post.agent_name}</span>
+                                    ${post.likes > 0 ? `
+                                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-rose-50 text-rose-600 rounded-full text-xs font-medium">
+                                        <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clip-rule="evenodd"/>
+                                        </svg>
+                                        ${post.likes}
+                                    </span>` : ''}
+                                </div>
+                                <div class="flex items-center gap-2 shrink-0">
+                                    ${toggleBtn}
+                                    <span class="text-xs text-slate-400 font-mono">#${post.id}</span>
+                                    <time class="text-xs text-slate-400">${formatTime(post.created_at)}</time>
+                                </div>
+                            </div>
+                            <div class="prose prose-sm text-slate-700">${content}</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Render a node and its children recursively
+        function renderNode(node, depth = 0) {
+            const post = node.post;
+            const hasReplies = node.children.length > 0;
+            const indent = depth > 0 ? `margin-left: ${depth * 24}px;` : '';
+
+            let html = `
+                <div id="post-${post.id}" class="relative" style="${indent}">
+                    ${depth > 0 ? `
+                    <div class="absolute left-0 top-0 bottom-0 w-0.5 bg-gradient-to-b from-slate-200 to-transparent -ml-3"></div>
+                    <div class="absolute left-0 top-5 w-3 h-0.5 bg-slate-200 -ml-3"></div>
+                    ` : ''}
+                    ${createPostHTML(post, hasReplies)}
+            `;
+
+            if (hasReplies) {
+                html += `<div id="replies-${post.id}" class="border-l-2 border-slate-100 ml-4 pl-2 hover:border-indigo-100 transition-colors">`;
+                for (const child of node.children) {
+                    html += renderNode(child, depth + 1);
+                }
+                html += '</div>';
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+        function showEmptyState() {
+            const postsList = document.getElementById('posts-list');
+            postsList.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-16 text-center">
+                    <div class="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
+                        <svg class="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-medium text-slate-900 mb-1">No posts yet</h3>
+                    <p class="text-slate-500 text-sm">Start the simulation to see AI agents discuss the topic.</p>
+                </div>
+            `;
+        }
+
+        async function fetchPosts() {
+            try {
+                // Fetch ALL posts (no after_id) to build tree
+                const response = await fetch(`/api/simulations/${SIMULATION_ID}/posts/json`);
+                if (!response.ok) return;
+
+                const data = await response.json();
+                const loadingEl = document.getElementById('posts-loading');
+                const postsList = document.getElementById('posts-list');
+
+                // Hide loading on first successful fetch
+                if (loadingEl) {
+                    loadingEl.style.display = 'none';
+                }
+
+                // Handle empty state
+                if (data.posts.length === 0) {
+                    if (lastPostCount !== 0) {
+                        showEmptyState();
+                        lastPostCount = 0;
+                    }
+                    return;
+                }
+
+                // Only re-render if post count changed
+                if (data.posts.length === lastPostCount) {
+                    return;  // No change, skip re-render
+                }
+
+                // Build tree and render
+                allPosts = data.posts;
+                const tree = buildPostTree(allPosts);
+
+                let html = '';
+                for (const node of tree) {
+                    html += renderNode(node);
+                }
+                postsList.innerHTML = html;
+                lastPostCount = data.posts.length;
+
+                // Auto-scroll if enabled
+                if (autoScrollEnabled) {
+                    scrollToBottom();
+                }
+            } catch (error) {
+                console.error('Error fetching posts:', error);
+            }
+        }
+
+        // Toggle post replies
+        function togglePost(id) {
+            const replies = document.getElementById(`replies-${id}`);
+            const btn = document.getElementById(`toggle-${id}`);
+            const card = document.getElementById(`card-${id}`);
+
+            if (!replies) return;
+
+            if (replies.style.display === 'none') {
+                replies.style.display = 'block';
+                if (btn) btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>';
+                if (card) card.classList.remove('opacity-60');
+            } else {
+                replies.style.display = 'none';
+                if (btn) btn.innerHTML = '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>';
+                if (card) card.classList.add('opacity-60');
+            }
+        }
+
+        function startPostsPolling() {
+            // Initial fetch
+            fetchPosts();
+            // Poll every 2 seconds
+            postsPollingInterval = setInterval(fetchPosts, 2000);
+        }
+
+        // ========================================
+        // HTMX Event Handlers (for agents modal)
+        // ========================================
+        document.body.addEventListener('htmx:afterSwap', function (evt) {
             if (evt.detail.target.id === 'agent-modal-content') {
                 openAgentModal();
             }
         });
-        
+
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') closeAgentModal();
         });
-        
-        // Markdown rendering helper
-        function renderMarkdown(content) {
-            return marked.parse(content);
-        }
+
+        // Start polling when page loads
+        document.addEventListener('DOMContentLoaded', function () {
+            startPostsPolling();
+        });
     </script>
 </body>
+
 </html>

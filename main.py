@@ -692,6 +692,50 @@ async def api_stop_simulation(
     ''')
 
 
+@app.get("/api/simulations/{sim_id}/posts/json")
+async def api_get_simulation_posts_json(
+    sim_id: int,
+    after_id: int = 0,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get posts for a simulation as JSON, optionally filtered by after_id."""
+    sim = db.query(Simulation).filter(
+        Simulation.id == sim_id,
+        Simulation.user_id == user.id
+    ).first()
+    
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    # Get thread for this simulation
+    thread = db.query(Thread).filter(Thread.simulation_id == sim_id).first()
+    
+    if not thread:
+        return {"posts": [], "max_id": 0}
+    
+    # Get posts, optionally filtered by after_id
+    query = db.query(Post).filter(Post.thread_id == thread.id)
+    if after_id > 0:
+        query = query.filter(Post.id > after_id)
+    posts = query.order_by(Post.created_at.asc()).all()
+    
+    # Get max ID from all posts (not just filtered)
+    max_id_result = db.query(Post.id).filter(Post.thread_id == thread.id).order_by(Post.id.desc()).first()
+    max_id = max_id_result[0] if max_id_result else 0
+    
+    posts_data = [{
+        "id": p.id,
+        "agent_name": p.agent_name,
+        "content": p.content,
+        "likes": p.likes,
+        "created_at": p.created_at.isoformat(),
+        "parent_id": p.parent_id
+    } for p in posts]
+    
+    return {"posts": posts_data, "max_id": max_id}
+
+
 @app.get("/api/simulations/{sim_id}/posts", response_class=HTMLResponse)
 async def api_get_simulation_posts(
     request: Request,
@@ -764,22 +808,45 @@ async def api_get_simulation_agents(
     
     if not agents:
         return HTMLResponse(content='''
-            <div class="text-center py-4 text-gray-500 text-sm">
-                <p>No agents yet. Start the simulation to spawn agents.</p>
+            <div class="flex flex-col items-center justify-center py-8 text-center">
+                <div class="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center mb-2">
+                    <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                </div>
+                <p class="text-slate-500 text-sm">No agents yet</p>
+                <p class="text-slate-400 text-xs mt-0.5">Start to spawn agents</p>
             </div>
         ''')
     
+    # Avatar gradient classes
+    gradients = [
+        'background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);',
+        'background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%);',
+        'background: linear-gradient(135deg, #14b8a6 0%, #10b981 100%);',
+        'background: linear-gradient(135deg, #f97316 0%, #f59e0b 100%);',
+        'background: linear-gradient(135deg, #3b82f6 0%, #0ea5e9 100%);',
+        'background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%);',
+    ]
+    
     html = '<div class="space-y-2">'
-    for agent in agents:
+    for i, agent in enumerate(agents):
+        gradient = gradients[i % len(gradients)]
         html += f'''
-        <div class="group p-3 bg-white border border-gray-100 rounded-lg cursor-pointer hover:bg-indigo-50 hover:border-indigo-100 transition-all duration-200 flex items-center gap-3" 
+        <div class="group p-3 rounded-xl cursor-pointer hover:bg-slate-50 transition-all duration-200 flex items-center gap-3" 
              hx-get="/api/simulations/{sim_id}/agents/{agent.id}" 
              hx-target="#agent-modal-content" 
              hx-trigger="click">
-            <div class="h-8 w-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold group-hover:bg-indigo-200">
+            <div class="h-9 w-9 rounded-full flex items-center justify-center text-white text-xs font-bold shadow-sm ring-2 ring-white" style="{gradient}">
                 {agent.name[:2].upper()}
             </div>
-            <span class="text-sm font-medium text-gray-700 group-hover:text-indigo-700 truncate">{agent.name}</span>
+            <div class="flex-1 min-w-0">
+                <span class="text-sm font-medium text-slate-700 group-hover:text-slate-900 truncate block">{agent.name}</span>
+                <span class="text-xs text-slate-400">Active</span>
+            </div>
+            <svg class="w-4 h-4 text-slate-300 group-hover:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+            </svg>
         </div>
         '''
     html += '</div>'
@@ -817,6 +884,133 @@ async def api_get_agent_details(
         "name": agent.name,
         "agent_md": agent.agent_md or "",
         "memory_md": agent.memory_md or ""
+    })
+
+
+
+# ============================================================================
+# Simulation Export Routes (Multi-User)
+# ============================================================================
+
+@app.get("/api/simulations/{sim_id}/export/json")
+async def api_export_simulation_json(
+    sim_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Export a simulation as JSON."""
+    # Verify user owns the simulation
+    sim = db.query(Simulation).filter(
+        Simulation.id == sim_id,
+        Simulation.user_id == user.id
+    ).first()
+    
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    # Get thread for this simulation
+    thread = db.query(Thread).filter(Thread.simulation_id == sim_id).first()
+    
+    # Get posts
+    posts = []
+    if thread:
+        posts = db.query(Post).filter(Post.thread_id == thread.id).order_by(Post.created_at.asc()).all()
+    
+    # Serialize posts
+    posts_data = [{
+        "id": p.id,
+        "agent": p.agent_name,
+        "content": p.content,
+        "likes": p.likes,
+        "created_at": p.created_at.isoformat(),
+        "parent_id": p.parent_id
+    } for p in posts]
+    
+    # Get agents from database (not filesystem)
+    agents = db.query(Agent).filter(
+        Agent.simulation_id == sim_id,
+        Agent.status == "active"
+    ).all()
+    
+    agents_data = {}
+    for agent in agents:
+        agents_data[agent.name] = {
+            "agent_md": agent.agent_md or "",
+            "memory_md": agent.memory_md or ""
+        }
+    
+    export_data = {
+        "simulation_id": sim.id,
+        "topic": sim.topic,
+        "language": sim.language,
+        "pool_style": sim.pool_style,
+        "posts": posts_data,
+        "agents": agents_data,
+        "exported_at": time.time()
+    }
+    
+    # Return JSON response with download headers
+    response = JSONResponse(content=export_data)
+    filename = f"simulation_{sim_id}_{int(time.time())}.json"
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+@app.get("/api/simulations/{sim_id}/export/html", response_class=HTMLResponse)
+async def api_export_simulation_html(
+    request: Request,
+    sim_id: int,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Export a simulation as standalone HTML."""
+    # Verify user owns the simulation
+    sim = db.query(Simulation).filter(
+        Simulation.id == sim_id,
+        Simulation.user_id == user.id
+    ).first()
+    
+    if not sim:
+        raise HTTPException(status_code=404, detail="Simulation not found")
+    
+    # Get thread and posts
+    thread = db.query(Thread).filter(Thread.simulation_id == sim_id).first()
+    
+    posts = []
+    if thread:
+        posts = db.query(Post).filter(Post.thread_id == thread.id).order_by(Post.created_at.asc()).all()
+    
+    # Build tree structure
+    post_map = {p.id: {"post": p, "children": []} for p in posts}
+    root_nodes = []
+    
+    for p in posts:
+        node = post_map[p.id]
+        if p.parent_id and p.parent_id in post_map:
+            post_map[p.parent_id]["children"].append(node)
+        else:
+            root_nodes.append(node)
+    
+    # Get agents from database
+    agents = db.query(Agent).filter(
+        Agent.simulation_id == sim_id,
+        Agent.status == "active"
+    ).all()
+    
+    agents_data = [{
+        "name": agent.name,
+        "status": "Active",
+        "model": sim.model_name or "Unknown",
+        "system_prompt": agent.agent_md or "",
+        "agent_md": agent.agent_md or "",
+        "memory_md": agent.memory_md or ""
+    } for agent in agents]
+    
+    return templates.TemplateResponse("export_static.html", {
+        "request": request,
+        "nodes": root_nodes,
+        "agents": agents_data,
+        "topic": sim.topic
     })
 
 

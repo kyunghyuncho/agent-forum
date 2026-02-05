@@ -204,8 +204,49 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def init_db():
-    """Initialize database tables."""
-    Base.metadata.create_all(bind=engine)
+    """
+    Initialize database tables.
+    
+    This automatically creates all tables if they don't exist.
+    For production with migrations, tables are created via Alembic,
+    but this ensures the app works out-of-the-box for development.
+    """
+    from sqlalchemy import inspect
+    
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+    
+    # Check if we need to create tables
+    if "users" not in existing_tables:
+        print("📦 Creating database tables...")
+        Base.metadata.create_all(bind=engine)
+        print("✅ Database tables created successfully!")
+        
+        # Mark as migrated for Alembic compatibility
+        _stamp_alembic_version()
+    else:
+        print("✅ Database tables already exist")
+
+
+def _stamp_alembic_version():
+    """
+    Stamp the alembic_version table with the latest migration.
+    This allows future Alembic migrations to work correctly.
+    """
+    try:
+        from alembic.config import Config
+        from alembic import command
+        import os
+        
+        # Find alembic.ini
+        alembic_ini = os.path.join(os.path.dirname(__file__), "alembic.ini")
+        if os.path.exists(alembic_ini):
+            alembic_cfg = Config(alembic_ini)
+            command.stamp(alembic_cfg, "head")
+            print("✅ Alembic version stamped")
+    except Exception as e:
+        # Non-fatal - app will still work
+        print(f"⚠️  Could not stamp Alembic version: {e}")
 
 
 def get_db():

@@ -57,7 +57,9 @@ class SimulationRunner:
             # Check loop limit
             if sim.max_loops and sim.loop_count >= sim.max_loops:
                 logger.info(f"Simulation {self.simulation_id} reached max loops ({sim.max_loops})")
-                sim.status = "stopped"
+                thread = db.query(Thread).filter(Thread.simulation_id == sim.id).first()
+                self._post_end_of_discussion(db, thread, "max_loops", sim.max_loops)
+                sim.status = "completed"
                 db.commit()
                 return False
             
@@ -111,6 +113,20 @@ class SimulationRunner:
                     agent.status = "left"
                     sim.consecutive_idle_count = 0
                     logger.info(f"Agent {agent.name} left simulation {sim.id}")
+                    
+                    # Check if all agents have left
+                    db.flush()  # Ensure the status change is visible
+                    remaining_agents = db.query(AgentModel).filter(
+                        AgentModel.simulation_id == sim.id,
+                        AgentModel.status == "active"
+                    ).count()
+                    
+                    if remaining_agents == 0:
+                        logger.info(f"Simulation {self.simulation_id} completed: all agents have left")
+                        self._post_end_of_discussion(db, thread, "all_left")
+                        sim.status = "completed"
+                        db.commit()
+                        return False
                 elif action == "SEARCH":
                     self._handle_search(db, agent, decision, thread, sim, api_key)
                     sim.consecutive_idle_count = 0
@@ -338,6 +354,26 @@ class SimulationRunner:
         follow_up = self._get_agent_decision(agent, sim, api_key)
         if follow_up and follow_up.get("action") == "POST":
             self._handle_post(db, agent, follow_up, thread, sim)
+    
+    def _post_end_of_discussion(self, db: Session, thread: Thread, reason: str, max_loops: int = None):
+        """Post a system message marking the end of the discussion."""
+        if not thread:
+            return
+        
+        if reason == "max_loops":
+            content = f"📋 **End of Discussion**\n\nThis forum has concluded after reaching the maximum of {max_loops} turns. Thank you to all participants for the engaging conversation!"
+        elif reason == "all_left":
+            content = "👋 **End of Discussion**\n\nAll participants have left the forum. The discussion has concluded naturally. Thank you for the great conversation!"
+        else:
+            content = "🔚 **End of Discussion**\n\nThis forum has concluded."
+        
+        post = Post(
+            thread_id=thread.id,
+            agent_name="[SYSTEM]",
+            content=content
+        )
+        db.add(post)
+        logger.info(f"Posted end of discussion message for thread {thread.id}")
     
     def _mother_intervention(self, db: Session, sim: SimulationModel, thread: Thread, api_key: str = None):
         """Handle mother intervention when discussion stagnates."""

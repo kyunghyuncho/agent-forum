@@ -265,9 +265,7 @@
                         <div class="space-y-3">
                             <div>
                                 <label class="block text-sm text-gray-600 mb-1">Default Model</label>
-                                <select name="default_model" hx-put="/api/settings" hx-trigger="change" hx-swap="none"
-                                    hx-ext="json-enc" hx-vals='js:{default_model: this.value}'
-                                    hx-headers='{"Content-Type": "application/json"}'
+                                <select name="default_model" onchange="saveSetting('default_model', this.value)"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
                                     <option value="google/gemini-2.5-flash-lite-preview-09-2025" {{ 'selected' if
                                         settings.default_model=='google/gemini-2.5-flash-lite-preview-09-2025' }}>Gemini
@@ -288,27 +286,22 @@
                                     <label class="block text-sm text-gray-600 mb-1">Agent Count</label>
                                     <input type="number" name="default_agent_count"
                                         value="{{ settings.default_agent_count }}" min="2" max="20"
-                                        hx-put="/api/settings" hx-trigger="change" hx-swap="none" hx-ext="json-enc"
-                                        hx-vals='js:{default_agent_count: parseInt(this.value)}'
-                                        hx-headers='{"Content-Type": "application/json"}'
+                                        onchange="saveSetting('default_agent_count', parseInt(this.value))"
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
                                 </div>
                                 <div>
                                     <label class="block text-sm text-gray-600 mb-1">Loop Delay (sec)</label>
                                     <input type="number" name="default_loop_delay"
                                         value="{{ settings.default_loop_delay }}" min="0.5" max="10" step="0.5"
-                                        hx-put="/api/settings" hx-trigger="change" hx-swap="none" hx-ext="json-enc"
-                                        hx-vals='js:{default_loop_delay: parseFloat(this.value)}'
-                                        hx-headers='{"Content-Type": "application/json"}'
+                                        onchange="saveSetting('default_loop_delay', parseFloat(this.value))"
                                         class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
                                 </div>
                             </div>
 
                             <div>
                                 <label class="block text-sm text-gray-600 mb-1">Pool Style</label>
-                                <select name="default_pool_style" hx-put="/api/settings" hx-trigger="change"
-                                    hx-swap="none" hx-ext="json-enc" hx-vals='js:{default_pool_style: this.value}'
-                                    hx-headers='{"Content-Type": "application/json"}'
+                                <select name="default_pool_style"
+                                    onchange="saveSetting('default_pool_style', this.value)"
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
                                     <option value="professional" {{ 'selected' if
                                         settings.default_pool_style=='professional' }}>Professional</option>
@@ -327,9 +320,8 @@
                         <div class="space-y-3">
                             <label class="flex items-center gap-2 cursor-pointer">
                                 <input type="checkbox" name="enable_web_browse" {{ 'checked' if
-                                    settings.enable_web_browse }} hx-put="/api/settings" hx-trigger="change"
-                                    hx-swap="none" hx-ext="json-enc" hx-vals='js:{enable_web_browse: this.checked}'
-                                    hx-headers='{"Content-Type": "application/json"}'
+                                    settings.enable_web_browse }}
+                                    onchange="saveSetting('enable_web_browse', this.checked)"
                                     class="w-4 h-4 text-indigo-600 rounded">
                                 <span class="text-sm text-gray-700">Enable web browsing for agents</span>
                             </label>
@@ -356,6 +348,26 @@
         }
         function closeSettingsModal() {
             document.getElementById('settings-modal').classList.add('hidden');
+        }
+
+        async function saveSetting(key, value) {
+            console.log('Saving setting:', key, '=', value);
+            try {
+                const payload = {};
+                payload[key] = value;
+                const response = await fetch('/api/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (response.ok) {
+                    console.log('Setting saved successfully:', key);
+                } else {
+                    console.error('Failed to save setting:', key, response.status);
+                }
+            } catch (error) {
+                console.error('Error saving setting:', key, error);
+            }
         }
 
         // Close modals on escape key

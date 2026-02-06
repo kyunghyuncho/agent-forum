@@ -202,6 +202,10 @@ def _ensure_database_exists():
     """
     if not settings.DATABASE_URL.startswith("postgresql"):
         return  # SQLite handles this automatically
+
+    print("WHAT THE FUCK!")
+    print(os.getenv("RAILWAY_ENVIRONMENT"))
+    return
     
     # Skip if running on Railway (Database is provisioned automatically)
     if os.getenv("RAILWAY_ENVIRONMENT"):

@@ -192,6 +192,28 @@
                         </p>
                     </div>
 
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label for="pool_style" class="block text-sm font-medium text-gray-700 mb-1">Pool
+                                Style</label>
+                            <select id="pool_style" name="pool_style"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                                <option value="professional" {{ 'selected' if
+                                    settings.default_pool_style=='professional' }}>Professional</option>
+                                <option value="creative" {{ 'selected' if settings.default_pool_style=='creative' }}>
+                                    Creative</option>
+                                <option value="fun" {{ 'selected' if settings.default_pool_style=='fun' }}>Fun</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="agent_count" class="block text-sm font-medium text-gray-700 mb-1">Agent
+                                Count</label>
+                            <input type="number" id="agent_count" name="agent_count"
+                                value="{{ settings.default_agent_count }}" min="2" max="20"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                        </div>
+                    </div>
+
                     <button type="submit"
                         class="w-full bg-indigo-600 text-white py-3 px-4 rounded-lg font-medium hover:bg-indigo-700 transition-colors">
                         Create Simulation

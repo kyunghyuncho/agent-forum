@@ -604,6 +604,8 @@ async def dashboard(
 @app.post("/api/simulations")
 async def api_create_simulation(
     topic: str = Form(...),
+    pool_style: str = Form(None),
+    agent_count: int = Form(None),
     user: User = Depends(get_current_user_html),
     db: Session = Depends(get_db)
 ):
@@ -613,7 +615,11 @@ async def api_create_simulation(
     
     # Get user's default settings
     user_settings = settings_service.get_user_settings(db, user.id)
-    logger.info(f"Creating simulation for user {user.id}: default_pool_style = {user_settings.default_pool_style}")
+    
+    # Use form values if provided, otherwise fall back to user defaults
+    final_pool_style = pool_style or user_settings.default_pool_style
+    final_agent_count = agent_count or user_settings.default_agent_count
+    logger.info(f"Creating simulation for user {user.id}: pool_style={final_pool_style}, agent_count={final_agent_count}")
     
     # Detect language from topic
     from simulation import detect_language
@@ -624,13 +630,16 @@ async def api_create_simulation(
         user_id=user.id,
         topic=topic,
         language=language,
-        pool_style=user_settings.default_pool_style,
         status="stopped"
     )
     
-    # Apply user's default settings
+    # Apply user's default settings (copies all defaults to simulation)
     settings_service.apply_to_new_simulation(db, user_settings, sim)
-    logger.info(f"After apply_to_new_simulation: sim.pool_style = {sim.pool_style}")
+    
+    # Override with form-selected values (if user chose different from defaults)
+    sim.pool_style = final_pool_style
+    sim.agent_count = final_agent_count
+    logger.info(f"Final simulation settings: pool_style={sim.pool_style}, agent_count={sim.agent_count}")
     
     db.add(sim)
     db.commit()

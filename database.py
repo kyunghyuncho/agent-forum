@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, DateTime, Text, Float, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from datetime import datetime
+import os
 from config import settings
 
 Base = declarative_base()
@@ -202,6 +203,10 @@ def _ensure_database_exists():
     if not settings.DATABASE_URL.startswith("postgresql"):
         return  # SQLite handles this automatically
     
+    # Skip if running on Railway (Database is provisioned automatically)
+    if os.getenv("RAILWAY_ENVIRONMENT"):
+        return
+    
     import re
     from urllib.parse import urlparse
     
@@ -243,7 +248,7 @@ def _ensure_database_exists():
 
 
 # Ensure database exists before creating engine
-_ensure_database_exists()
+# _ensure_database_exists() # Removed module-level call to prevent import side-effects
 
 # Handle SQLite vs PostgreSQL connection args
 connect_args = {}
@@ -263,6 +268,9 @@ def init_db():
     but this ensures the app works out-of-the-box for development.
     """
     from sqlalchemy import inspect
+    
+    # Ensure database exists (safe to call here)
+    _ensure_database_exists()
     
     inspector = inspect(engine)
     existing_tables = inspector.get_table_names()

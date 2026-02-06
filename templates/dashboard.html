@@ -295,20 +295,14 @@
                         <div class="space-y-3">
                             <div>
                                 <label class="block text-sm text-gray-600 mb-1">Default Model</label>
-                                <select name="default_model" onchange="saveSetting('default_model', this.value)"
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
-                                    <option value="google/gemini-2.5-flash-lite-preview-09-2025" {{ 'selected' if
-                                        settings.default_model=='google/gemini-2.5-flash-lite-preview-09-2025' }}>Gemini
-                                        2.5 Flash Lite</option>
-                                    <option value="google/gemini-2.0-flash-001" {{ 'selected' if
-                                        settings.default_model=='google/gemini-2.0-flash-001' }}>Gemini 2.0 Flash
-                                    </option>
-                                    <option value="anthropic/claude-3.5-sonnet" {{ 'selected' if
-                                        settings.default_model=='anthropic/claude-3.5-sonnet' }}>Claude 3.5 Sonnet
-                                    </option>
-                                    <option value="openai/gpt-4o-mini" {{ 'selected' if
-                                        settings.default_model=='openai/gpt-4o-mini' }}>GPT-4o Mini</option>
-                                </select>
+                                <input type="text" name="default_model" value="{{ settings.default_model }}"
+                                    onchange="saveSetting('default_model', this.value)"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                                    placeholder="e.g., google/gemini-2.5-flash-preview-09-2025">
+                                <p class="text-xs text-gray-500 mt-1">
+                                    Enter any <a href="https://openrouter.ai/models" target="_blank"
+                                        class="text-indigo-600">OpenRouter model</a> name
+                                </p>
                             </div>
 
                             <div class="grid grid-cols-2 gap-3">

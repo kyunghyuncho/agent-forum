@@ -90,14 +90,21 @@ class SettingsService:
         Returns:
             Updated UserSettings instance
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         settings = SettingsService.get_user_settings(db, user_id)
+        logger.info(f"Updating settings for user {user_id}: {kwargs}")
         
         for key, value in kwargs.items():
             if hasattr(settings, key) and value is not None:
+                old_value = getattr(settings, key)
                 setattr(settings, key, value)
+                logger.info(f"  Setting {key}: {old_value} -> {value}")
         
         db.commit()
         db.refresh(settings)
+        logger.info(f"  After commit: default_pool_style = {settings.default_pool_style}")
         return settings
     
     @staticmethod

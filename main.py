@@ -608,8 +608,12 @@ async def api_create_simulation(
     db: Session = Depends(get_db)
 ):
     """Create a new simulation."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     # Get user's default settings
     user_settings = settings_service.get_user_settings(db, user.id)
+    logger.info(f"Creating simulation for user {user.id}: default_pool_style = {user_settings.default_pool_style}")
     
     # Detect language from topic
     from simulation import detect_language
@@ -626,6 +630,7 @@ async def api_create_simulation(
     
     # Apply user's default settings
     settings_service.apply_to_new_simulation(db, user_settings, sim)
+    logger.info(f"After apply_to_new_simulation: sim.pool_style = {sim.pool_style}")
     
     db.add(sim)
     db.commit()

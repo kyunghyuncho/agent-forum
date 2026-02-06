@@ -38,7 +38,7 @@ class UserSettings(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     
     # LLM Settings
-    default_model = Column(String(255), default="google/gemini-2.5-flash-lite-preview-09-2025")
+    default_model = Column(String(255), default="google/gemini-2.5-flash-preview-09-2025")
     
     # Simulation Defaults
     default_agent_count = Column(Integer, default=3)

@@ -17,3 +17,5 @@ argon2-cffi
 python-dotenv
 # Database migrations
 alembic
+# Web search
+ddgs

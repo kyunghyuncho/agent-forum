@@ -508,7 +508,7 @@ If the content seems irrelevant to the stated reason, mention that briefly."""
 
     def search(self, query: str, num_results: int = 5) -> dict:
         """
-        Search using DuckDuckGo and return top results.
+        Search using DuckDuckGo via the ddgs package.
         
         Args:
             query: The search query
@@ -536,125 +536,33 @@ If the content seems irrelevant to the stated reason, mention that briefly."""
             }
         
         try:
-            # Use DuckDuckGo HTML search (no API key needed)
-            search_url = f"https://html.duckduckgo.com/html/?q={quote_plus(query)}"
+            from ddgs import DDGS
             
-            with httpx.Client(timeout=self.timeout, follow_redirects=True) as client:
-                response = client.get(
-                    search_url,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                        "Accept-Language": "en-US,en;q=0.9",
-                    },
-                )
-                
-                # Handle 202 Accepted - DuckDuckGo sometimes returns this for verification
-                # Retry after a short delay
-                if response.status_code == 202:
-                    logger.info("DuckDuckGo returned 202 Accepted, retrying after delay...")
-                    time.sleep(2)
-                    response = client.get(
-                        search_url,
-                        headers={
-                            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                            "Accept-Language": "en-US,en;q=0.9",
-                        },
-                    )
-                
-                # If still not 200, try raising for status
-                if response.status_code != 200:
-                    logger.warning(f"DuckDuckGo returned status {response.status_code}")
-                    if response.status_code == 202:
-                        return {
-                            "success": False,
-                            "results": [],
-                            "error": "Search service busy (202 Accepted). Please try again in a moment.",
-                        }
-                    response.raise_for_status()
-                
-                soup = BeautifulSoup(response.text, "html.parser")
-                
-                # Check for rate limiting or captcha pages
-                page_text = soup.get_text().lower()
-                if "blocked" in page_text or "captcha" in page_text or "robot" in page_text:
-                    logger.warning("DuckDuckGo may be rate limiting requests")
-                    return {
-                        "success": False,
-                        "results": [],
-                        "error": "Search temporarily blocked (rate limited). Try again later.",
-                    }
-                
-                results = []
-                # DuckDuckGo HTML results are in divs with class "result"
-                result_divs = soup.select(".result")[:num_results]
-                
-                for result_div in result_divs:
-                    # Title and URL - the title link has class "result__a"
-                    title_elem = result_div.select_one("a.result__a")
-                    if not title_elem:
-                        continue
-                    
-                    title = title_elem.get_text(strip=True)
-                    
-                    # Skip results that look like captcha/rate limit responses
-                    if title.lower() in ["accepted", "blocked", "captcha"]:
-                        continue
-                    
-                    # DuckDuckGo uses redirect URLs like /l/?...&uddg=<encoded_url>
-                    # Extract actual URL from the uddg query parameter
-                    raw_url = title_elem.get("href", "")
-                    url = ""
-                    if raw_url:
-                        parsed_redirect = urlparse(raw_url)
-                        query_params = parse_qs(parsed_redirect.query)
-                        if "uddg" in query_params and query_params["uddg"]:
-                            url = query_params["uddg"][0]
-                        else:
-                            # Fallback: use raw URL if uddg not found (and it looks like a real URL)
-                            if raw_url.startswith("http"):
-                                url = raw_url
-                    
-                    # Extract snippet
-                    snippet_elem = result_div.select_one("a.result__snippet")
-                    snippet = snippet_elem.get_text(strip=True) if snippet_elem else ""
-                    
-                    if title and url:
-                        results.append({
-                            "title": title,
-                            "url": url,
-                            "snippet": snippet,
-                        })
-                
-                if not results:
-                    # Log the HTML for debugging
-                    logger.warning(f"No results found. Page title: {soup.title.string if soup.title else 'None'}")
-                    logger.debug(f"Page HTML snippet: {str(soup)[:1000]}")
-                    return {
-                        "success": False,
-                        "results": [],
-                        "error": "No search results found",
-                    }
-                
+            with DDGS() as ddgs:
+                # Use text search with max_results parameter
+                search_results = list(ddgs.text(query, max_results=num_results))
+            
+            if not search_results:
                 return {
-                    "success": True,
-                    "results": results,
-                    "error": None,
+                    "success": False,
+                    "results": [],
+                    "error": "No search results found",
                 }
+            
+            results = []
+            for r in search_results:
+                results.append({
+                    "title": r.get("title", ""),
+                    "url": r.get("href", ""),
+                    "snippet": r.get("body", ""),
+                })
+            
+            return {
+                "success": True,
+                "results": results,
+                "error": None,
+            }
                 
-        except httpx.TimeoutException:
-            return {
-                "success": False,
-                "results": [],
-                "error": f"Search timed out after {self.timeout} seconds",
-            }
-        except httpx.HTTPStatusError as e:
-            return {
-                "success": False,
-                "results": [],
-                "error": f"Search failed: HTTP {e.response.status_code}",
-            }
         except Exception as e:
             logger.exception(f"Unexpected error during search: {e}")
             return {

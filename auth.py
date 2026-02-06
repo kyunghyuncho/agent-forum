@@ -254,6 +254,11 @@ async def get_current_user(
     return user
 
 
+class LoginRequired(Exception):
+    """Exception raised when authentication is required for a page view."""
+    pass
+
+
 async def get_current_user_optional(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
@@ -267,6 +272,23 @@ async def get_current_user_optional(
         return await get_current_user(request, credentials, db)
     except HTTPException:
         return None
+
+
+async def get_current_user_html(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    Get current user for HTML pages.
+    Raises LoginRequired exception if not authenticated (caught by main.py to redirect).
+    """
+    try:
+        return await get_current_user(request, credentials, db)
+    except HTTPException as e:
+        if e.status_code == status.HTTP_401_UNAUTHORIZED:
+            raise LoginRequired()
+        raise e
 
 
 # ============================================================================
@@ -303,3 +325,26 @@ async def get_current_admin_user(
             detail="Admin access required"
         )
     return user
+
+
+async def get_current_admin_user_html(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    Get current admin user for HTML pages.
+    Raises LoginRequired if not authenticated.
+    """
+    try:
+        user = await get_current_user(request, credentials, db)
+        if not user.is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Admin access required"
+            )
+        return user
+    except HTTPException as e:
+        if e.status_code == status.HTTP_401_UNAUTHORIZED:
+            raise LoginRequired()
+        raise e

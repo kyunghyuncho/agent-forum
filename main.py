@@ -8,7 +8,7 @@ from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, Request, Form, Depends, UploadFile, File, HTTPException, status
+from fastapi import FastAPI, Request, Form, Depends, UploadFile, File, HTTPException, status, Response
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -19,8 +19,9 @@ from config import settings
 from auth import (
     UserCreate, UserLogin, Token, UserResponse,
     create_user, authenticate_user, create_access_token, 
-    get_current_user, get_current_user_optional, user_to_response,
-    get_user_by_email, update_user_api_key, get_current_admin_user
+    get_current_user, get_current_user_optional, get_current_user_html,
+    user_to_response, get_user_by_email, update_user_api_key, 
+    get_current_admin_user, get_current_admin_user_html, LoginRequired
 )
 from services.settings_service import (
     SettingsService, UserSettingsUpdate, UserSettingsResponse, settings_service
@@ -83,7 +84,19 @@ async def lifespan(app: FastAPI):
     # Cleanup
     simulation_manager.stop()
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(title="LocalBBS", lifespan=lifespan)
+
+
+@app.exception_handler(LoginRequired)
+async def login_required_handler(request: Request, exc: LoginRequired):
+    """Redirect to login page when authentication is required."""
+    if request.headers.get("HX-Request"):
+        return Response(headers={"HX-Redirect": "/login"})
+    
+    return RedirectResponse(
+        url="/login",
+        status_code=status.HTTP_303_SEE_OTHER
+    )
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
@@ -166,7 +179,7 @@ async def resend_verification(
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_dashboard(
     request: Request,
-    admin: User = Depends(get_current_admin_user),
+    admin: User = Depends(get_current_admin_user_html),
     db: Session = Depends(get_db)
 ):
     """Admin dashboard."""
@@ -565,7 +578,7 @@ async def api_update_api_key(
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_html),
     db: Session = Depends(get_db)
 ):
     """User dashboard showing their simulations."""
@@ -591,7 +604,7 @@ async def dashboard(
 @app.post("/api/simulations")
 async def api_create_simulation(
     topic: str = Form(...),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_html),
     db: Session = Depends(get_db)
 ):
     """Create a new simulation."""
@@ -625,7 +638,7 @@ async def api_create_simulation(
 async def view_simulation(
     request: Request,
     sim_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_html),
     db: Session = Depends(get_db)
 ):
     """View a specific simulation."""
@@ -648,7 +661,7 @@ async def view_simulation(
 @app.delete("/api/simulations/{sim_id}")
 async def api_delete_simulation(
     sim_id: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user_html),
     db: Session = Depends(get_db)
 ):
     """Delete a simulation."""

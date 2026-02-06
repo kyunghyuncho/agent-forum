@@ -448,7 +448,7 @@ class WebBrowser:
                 "error": f"Unexpected error: {str(e)}",
             }
 
-    def summarize(self, content: str, url: str, reason: str, llm_client) -> str:
+    def summarize(self, content: str, url: str, reason: str, llm_client, api_key: str = None) -> str:
         """
         Use LLM to summarize the fetched content.
         
@@ -457,6 +457,7 @@ class WebBrowser:
             url: The source URL
             reason: Why the agent wanted to browse this page
             llm_client: The LLM client instance
+            api_key: Optional API key to use for the LLM call
             
         Returns: A summary string
         """
@@ -476,7 +477,7 @@ If the content seems irrelevant to the stated reason, mention that briefly."""
         messages = [{"role": "user", "content": prompt}]
         
         try:
-            summary = llm_client.chat_completion(messages, temperature=0.3)
+            summary = llm_client.chat_completion(messages, temperature=0.3, api_key=api_key)
             return summary or "(Failed to generate summary)"
         except Exception as e:
             logger.error(f"Error summarizing content: {e}")

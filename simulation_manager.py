@@ -31,8 +31,16 @@ class SimulationRunner:
         return SessionLocal()
     
     def _get_simulation(self, db: Session) -> Optional[SimulationModel]:
-        """Get the simulation model."""
+        """Get the simulation model with user relationship loaded."""
         return db.query(SimulationModel).filter(SimulationModel.id == self.simulation_id).first()
+    
+    def _get_api_key(self, db: Session, sim: SimulationModel) -> Optional[str]:
+        """Get the API key for this simulation's user."""
+        from config import settings
+        # Try user's personal key first, fall back to global key
+        if sim.user and sim.user.openrouter_api_key:
+            return sim.user.openrouter_api_key
+        return settings.OPENROUTER_API_KEY or None
     
     def step(self) -> bool:
         """Execute one simulation step. Returns False if simulation should stop."""
@@ -70,7 +78,8 @@ class SimulationRunner:
             # Spawn initial agents if none exist
             if not agents:
                 logger.info(f"Simulation {self.simulation_id}: Spawning initial agents")
-                self._spawn_initial_agents(db, sim)
+                api_key = self._get_api_key(db, sim)
+                self._spawn_initial_agents(db, sim, api_key)
                 agents = db.query(AgentModel).filter(
                     AgentModel.simulation_id == sim.id,
                     AgentModel.status == "active"
@@ -84,11 +93,13 @@ class SimulationRunner:
             import random
             agent = random.choice(agents)
             
-            # Update agent's TEMP.md with recent posts
             self._update_agent_context(db, agent, thread, sim)
             
+            # Get API key for LLM calls
+            api_key = self._get_api_key(db, sim)
+            
             # Get agent decision
-            decision = self._get_agent_decision(agent, sim)
+            decision = self._get_agent_decision(agent, sim, api_key)
             
             if decision:
                 action = decision.get("action", "DO_NOTHING")
@@ -101,10 +112,10 @@ class SimulationRunner:
                     sim.consecutive_idle_count = 0
                     logger.info(f"Agent {agent.name} left simulation {sim.id}")
                 elif action == "SEARCH":
-                    self._handle_search(db, agent, decision, thread, sim)
+                    self._handle_search(db, agent, decision, thread, sim, api_key)
                     sim.consecutive_idle_count = 0
                 elif action == "BROWSE":
-                    self._handle_browse(db, agent, decision, thread, sim)
+                    self._handle_browse(db, agent, decision, thread, sim, api_key)
                     sim.consecutive_idle_count = 0
                 else:
                     sim.consecutive_idle_count += 1
@@ -125,7 +136,7 @@ class SimulationRunner:
             mother_threshold = 5  # Default threshold
             if sim.consecutive_idle_count >= mother_threshold:
                 logger.info(f"Simulation {self.simulation_id}: Mother intervention triggered")
-                self._mother_intervention(db, sim, thread)
+                self._mother_intervention(db, sim, thread, api_key)
                 sim.consecutive_idle_count = 0
             
             # Increment loop count
@@ -142,7 +153,7 @@ class SimulationRunner:
         finally:
             db.close()
     
-    def _spawn_initial_agents(self, db: Session, sim: SimulationModel):
+    def _spawn_initial_agents(self, db: Session, sim: SimulationModel, api_key: str = None):
         """Spawn initial agents for a new simulation."""
         pool_style = sim.pool_style or "professional"
         pool_style_desc = POOL_STYLE_DESCRIPTIONS.get(pool_style, POOL_STYLE_DESCRIPTIONS["professional"])
@@ -159,7 +170,7 @@ class SimulationRunner:
         
         try:
             messages = [{"role": "user", "content": prompt}]
-            response = llm_client.chat_completion(messages)
+            response = llm_client.chat_completion(messages, api_key=api_key, model=sim.model_name)
             
             if not response:
                 logger.error(f"No response from LLM for genesis")
@@ -213,7 +224,7 @@ class SimulationRunner:
         agent.temp_md = temp_content
         agent.last_read_post_id = posts[-1].id if posts else agent.last_read_post_id
     
-    def _get_agent_decision(self, agent: AgentModel, sim: SimulationModel) -> Optional[Dict[str, Any]]:
+    def _get_agent_decision(self, agent: AgentModel, sim: SimulationModel, api_key: str = None) -> Optional[Dict[str, Any]]:
         """Get decision from an agent."""
         current_time = datetime.now().strftime("%y/%m/%d %H:%M:%S")
         
@@ -244,7 +255,7 @@ class SimulationRunner:
         
         try:
             messages = [{"role": "user", "content": prompt}]
-            response = llm_client.chat_completion(messages)
+            response = llm_client.chat_completion(messages, api_key=api_key, model=sim.model_name)
             
             if not response:
                 logger.warning(f"Agent {agent.name}: No response from LLM")
@@ -281,7 +292,7 @@ class SimulationRunner:
         
         logger.info(f"Agent {agent.name} posted in simulation {sim.id}")
     
-    def _handle_search(self, db: Session, agent: AgentModel, decision: Dict, thread: Thread, sim: SimulationModel):
+    def _handle_search(self, db: Session, agent: AgentModel, decision: Dict, thread: Thread, sim: SimulationModel, api_key: str = None):
         """Handle a SEARCH action."""
         query = decision.get("search_query", "")
         if not query:
@@ -299,11 +310,11 @@ class SimulationRunner:
         agent.temp_md = (agent.temp_md or "") + search_context
         
         # Get follow-up decision
-        follow_up = self._get_agent_decision(agent, sim)
+        follow_up = self._get_agent_decision(agent, sim, api_key)
         if follow_up and follow_up.get("action") == "POST":
             self._handle_post(db, agent, follow_up, thread, sim)
     
-    def _handle_browse(self, db: Session, agent: AgentModel, decision: Dict, thread: Thread, sim: SimulationModel):
+    def _handle_browse(self, db: Session, agent: AgentModel, decision: Dict, thread: Thread, sim: SimulationModel, api_key: str = None):
         """Handle a BROWSE action."""
         url = decision.get("browse_url", "")
         if not url:
@@ -314,7 +325,7 @@ class SimulationRunner:
         
         if result["success"]:
             reason = decision.get("browse_reason", "research")
-            summary = web_browser.summarize(result["content"], url, reason, llm_client)
+            summary = web_browser.summarize(result["content"], url, reason, llm_client, api_key=api_key)
             title = result.get("title", "")
             browse_context = f"\n\n## Web Browse Result\n**URL:** {url}\n**Title:** {title}\n**Summary:**\n{summary}\n"
         else:
@@ -324,11 +335,11 @@ class SimulationRunner:
         agent.temp_md = (agent.temp_md or "") + browse_context
         
         # Get follow-up decision
-        follow_up = self._get_agent_decision(agent, sim)
+        follow_up = self._get_agent_decision(agent, sim, api_key)
         if follow_up and follow_up.get("action") == "POST":
             self._handle_post(db, agent, follow_up, thread, sim)
     
-    def _mother_intervention(self, db: Session, sim: SimulationModel, thread: Thread):
+    def _mother_intervention(self, db: Session, sim: SimulationModel, thread: Thread, api_key: str = None):
         """Handle mother intervention when discussion stagnates."""
         current_time = datetime.now().strftime("%y/%m/%d %H:%M:%S")
         
@@ -347,7 +358,7 @@ class SimulationRunner:
         
         try:
             messages = [{"role": "user", "content": prompt}]
-            response = llm_client.chat_completion(messages)
+            response = llm_client.chat_completion(messages, api_key=api_key, model=sim.model_name)
             
             if not response:
                 return

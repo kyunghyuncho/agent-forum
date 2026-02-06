@@ -15,22 +15,43 @@ class LLMClient:
         """Reinitialize the client with current settings (useful when API key changes)."""
         self.client = openai.OpenAI(
             base_url=settings.OPENROUTER_BASE_URL,
-            api_key=settings.OPENROUTER_API_KEY
+            api_key=settings.OPENROUTER_API_KEY or "dummy"  # Placeholder, real key passed per-call
         )
         self.model = settings.MODEL_NAME
 
-    def chat_completion(self, messages, temperature=0.7):
+    def _get_client(self, api_key: str = None):
+        """Get an OpenAI client with the specified API key."""
+        key = api_key or settings.OPENROUTER_API_KEY
+        if not key:
+            return None
+        return openai.OpenAI(
+            base_url=settings.OPENROUTER_BASE_URL,
+            api_key=key
+        )
+
+    def chat_completion(self, messages, temperature=0.7, api_key: str = None, model: str = None):
         """
         Wrapper for chat completion.
+        
+        Args:
+            messages: Chat messages
+            temperature: Sampling temperature
+            api_key: Optional API key (uses global key if not provided)
+            model: Optional model name (uses default if not provided)
         """
         try:
-            # check if api key is set
-            if not settings.OPENROUTER_API_KEY:
+            # Get the appropriate API key
+            key = api_key or settings.OPENROUTER_API_KEY
+            if not key:
                 logger.warning("OPENROUTER_API_KEY is not set. LLM calls will fail.")
                 return None
 
-            response = self.client.chat.completions.create(
-                model=self.model,
+            client = self._get_client(key)
+            if not client:
+                return None
+
+            response = client.chat.completions.create(
+                model=model or self.model,
                 messages=messages,
                 temperature=temperature,
             )

@@ -199,15 +199,10 @@ def _ensure_database_exists():
     """
     Ensure the PostgreSQL database exists, create it if not.
     For SQLite, the file is created automatically.
+    This is ONLY for local development - Railway provisions the DB automatically.
     """
     if not settings.DATABASE_URL.startswith("postgresql"):
         return  # SQLite handles this automatically
-
-    # print to stderr for debugging
-    import sys
-    print("WHAT THE FUCK!", file=sys.stderr)
-    print(os.getenv("RAILWAY_ENVIRONMENT"), file=sys.stderr)
-    return
     
     # Skip if running on Railway (Database is provisioned automatically)
     if os.getenv("RAILWAY_ENVIRONMENT"):
@@ -261,11 +256,18 @@ connect_args = {}
 if settings.DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 
-
-# print to stderr for debugging
-import sys
-print("WHAT THE FUCK!", file=sys.stderr)
-print(settings.DATABASE_URL, file=sys.stderr)
+# Validate DATABASE_URL before creating engine
+if os.getenv("RAILWAY_ENVIRONMENT"):
+    import sys
+    if settings.DATABASE_URL.startswith("sqlite"):
+        print("WARNING: Using SQLite on Railway. DATABASE_URL may not be configured.", file=sys.stderr)
+        print("Make sure you have added a PostgreSQL database and linked it.", file=sys.stderr)
+    else:
+        # Mask the password for logging
+        from urllib.parse import urlparse
+        parsed = urlparse(settings.DATABASE_URL)
+        masked_url = f"{parsed.scheme}://{parsed.username}:***@{parsed.hostname}:{parsed.port}/{parsed.path.lstrip('/')}"
+        print(f"Database URL: {masked_url}", file=sys.stderr)
 
 engine = create_engine(settings.DATABASE_URL, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

@@ -34,10 +34,20 @@ Railway will automatically detect the project and begin deployment.
 
 1. In your Railway project, click **"+ New"**
 2. Select **"Database"** → **"Add PostgreSQL"**
-3. Railway will provision a PostgreSQL database and automatically inject the `DATABASE_URL` environment variable
+3. Click on your new PostgreSQL service → **"Connect"** tab
+4. Copy the **"Connection URL"** from the **"Public"** section
+   - It looks like: `postgresql://postgres:xxx@monorail.proxy.rlwy.net:12345/railway`
+
+5. Go to your **App Service** → **Variables** → **"+ New Variable"**
+   - Name: `DATABASE_URL`
+   - Value: Paste the public connection URL from step 4
+
+> [!IMPORTANT]
+> **Use the PUBLIC connection URL, not the private one.**
+> Private networking (`*.railway.internal`) can fail during startup because `alembic` migrations run before the container is fully registered in the network.
 
 > [!TIP]
-> Railway automatically sets `DATABASE_URL` for your app. The app handles the `postgres://` → `postgresql://` URL conversion automatically.
+> The app automatically converts `postgres://` → `postgresql://` URLs if needed.
 
 ---
 

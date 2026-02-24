@@ -38,7 +38,7 @@ class UserSettings(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     
     # LLM Settings
-    default_model = Column(String(255), default="google/gemini-2.5-flash-preview-09-2025")
+    default_model = Column(String(255), default="google/gemini-2.5-flash")
     
     # Simulation Defaults
     default_agent_count = Column(Integer, default=3)
@@ -112,7 +112,7 @@ class Simulation(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Per-simulation settings (copied from user defaults on creation)
-    model_name = Column(String(255), default="google/gemini-2.5-flash-lite-preview-09-2025")
+    model_name = Column(String(255), default="google/gemini-2.5-flash")
     max_loops = Column(Integer, default=50)
     loop_delay = Column(Float, default=2.0)
     agent_count = Column(Integer, default=3)

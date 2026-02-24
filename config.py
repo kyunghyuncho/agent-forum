@@ -31,7 +31,7 @@ class Settings:
     OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
     
     # Default model, can be overridden by user settings
-    MODEL_NAME = "google/gemini-2.5-flash-lite-preview-09-2025" 
+    MODEL_NAME = "google/gemini-2.5-flash" 
     MAX_LOOPS = 50
     DEFAULT_AGENT_COUNT = 3
     MOTHER_LOOKBACK_K = 25

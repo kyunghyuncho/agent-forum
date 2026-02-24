@@ -138,7 +138,7 @@ class SettingsService:
             UserSettingsResponse
         """
         return UserSettingsResponse(
-            default_model=settings.default_model or "google/gemini-2.5-flash-preview-09-2025",
+            default_model=settings.default_model or "google/gemini-2.5-flash",
             default_agent_count=settings.default_agent_count or 3,
             default_max_loops=settings.default_max_loops or 50,
             default_loop_delay=settings.default_loop_delay or 2.0,
